@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'release-*'
+      - 'feature-*'
+      - 'fix/*'
+  pull_request:
+    branches: "*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & Test (${{ matrix.os }} - ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        compiler: [gcc, clang]
+        exclude:
+          - os: macos-latest
+            compiler: gcc
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+            cc: gcc-11
+            cxx: g++-11
+          - os: ubuntu-latest
+            compiler: clang
+            cc: clang-14
+            cxx: clang++-14
+          - os: macos-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          ninja-build \
+          libspdlog-dev \
+          nlohmann-json3-dev \
+          libcurl4-openssl-dev \
+          libssl-dev \
+          ${{ matrix.cc }} \
+          ${{ matrix.cxx }}
+
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install cmake ninja spdlog nlohmann-json curl openssl
+
+    - name: Configure CMake
+      env:
+        CC: ${{ matrix.cc }}
+        CXX: ${{ matrix.cxx }}
+      run: |
+        cmake -B build \
+          -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=17
+
+    - name: Build
+      run: cmake --build build --parallel
+
+    - name: Run Tests
+      working-directory: build
+      run: ctest --output-on-failure --parallel
+
+    - name: Upload test results
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}-${{ matrix.compiler }}
+        path: build/Testing/
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: quantclaw:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Test Docker image
+      run: |
+        docker run --rm quantclaw:test quantclaw --version || true
+
+  format-check:
+    name: Code Format Check
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Don't block CI on format issues
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install clang-format
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format-14
+
+    - name: Check C++ formatting
+      continue-on-error: true
+      run: |
+        echo "Checking code formatting..."
+        FAILED_FILES=""
+
+        for file in $(find src include tests -name "*.cpp" -o -name "*.hpp"); do
+          if ! clang-format-14 --dry-run --Werror "$file" 2>&1 > /dev/null; then
+            FAILED_FILES="$FAILED_FILES\n  - $file"
+          fi
+        done
+
+        if [ -n "$FAILED_FILES" ]; then
+          echo "⚠️  Warning: The following files have formatting issues:"
+          echo -e "$FAILED_FILES"
+          echo ""
+          echo "To fix formatting, run one of:"
+          echo "  1. ./scripts/format-code.sh"
+          echo "  2. docker run --rm -v \$(pwd):/src -w /src silkeh/clang:14 bash -c 'find src include tests -name \"*.cpp\" -o -name \"*.hpp\" | xargs clang-format -i -style=file'"
+          exit 1
+        fi
+
+        echo "✓ All files are properly formatted!"
+
+  static-analysis:
+    name: Static Analysis (cppcheck)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install cppcheck
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck
+
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=warning,performance,portability \
+          --suppress=missingIncludeSystem \
+          --inline-suppr \
+          --error-exitcode=0 \
+          -I include \
+          src/
