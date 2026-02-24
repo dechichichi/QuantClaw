@@ -119,10 +119,11 @@ void WebServer::server_loop() {
 
     // Register simplified routes
     for (const auto& [path, route_info] : routes_) {
-        if (route_info.method == "GET") {
-            http_server_->Get(path, [&route_info, this](const httplib::Request& req, httplib::Response& res) {
+        const auto& info = route_info;  // C++17: structured bindings cannot be captured in lambdas
+        if (info.method == "GET") {
+            http_server_->Get(path, [&info, this](const httplib::Request& req, httplib::Response& res) {
                 try {
-                    auto body = route_info.handler("GET", req.body);
+                    auto body = info.handler("GET", req.body);
                     res.set_content(body, "application/json");
                 } catch (const std::exception& e) {
                     logger_->error("Route handler failed: {}", e.what());
@@ -130,10 +131,10 @@ void WebServer::server_loop() {
                     res.set_content(create_error_response("Internal server error", 500), "application/json");
                 }
             });
-        } else if (route_info.method == "POST") {
-            http_server_->Post(path, [&route_info, this](const httplib::Request& req, httplib::Response& res) {
+        } else if (info.method == "POST") {
+            http_server_->Post(path, [&info, this](const httplib::Request& req, httplib::Response& res) {
                 try {
-                    auto body = route_info.handler("POST", req.body);
+                    auto body = info.handler("POST", req.body);
                     res.set_content(body, "application/json");
                 } catch (const std::exception& e) {
                     logger_->error("Route handler failed: {}", e.what());

@@ -49,12 +49,13 @@ void MCPToolManager::discover_tools(const MCPConfig& config) {
 void MCPToolManager::register_into(ToolRegistry& registry) {
     for (const auto& [qualified_name, meta] : tool_meta_) {
         auto self = this;  // capture raw pointer; MCPToolManager outlives the lambda
+        const auto& name = qualified_name;  // C++17: structured bindings cannot be captured in lambdas
         registry.register_external_tool(
             qualified_name,
             meta.description,
             meta.parameters,
-            [self, qualified_name](const nlohmann::json& args) -> std::string {
-                return self->execute_tool(qualified_name, args);
+            [self, name](const nlohmann::json& args) -> std::string {
+                return self->execute_tool(name, args);
             }
         );
     }
