@@ -35,6 +35,8 @@ QuantClaw 是 [OpenClaw](https://github.com/openclaw/openclaw) 生态的 C++ 原
 
 ## 快速开始
 
+### 1. 编译 QuantClaw
+
 ```bash
 git clone https://github.com/QuantClaw/QuantClaw.git
 cd QuantClaw
@@ -48,6 +50,44 @@ make -j$(nproc)
 # 安装（可选）
 sudo make install
 ```
+
+### 2. 运行 Onboarding 向导
+
+```bash
+# 交互式设置向导（推荐）
+quantclaw onboard
+
+# 或自动安装守护进程
+quantclaw onboard --install-daemon
+
+# 或快速设置（无提示）
+quantclaw onboard --quick
+```
+
+Onboarding 向导会引导你完成：
+- 配置设置（网关端口、AI 模型等）
+- 工作空间创建（SOUL.md、技能目录等）
+- 可选的系统服务守护进程安装
+- 技能初始化
+- 设置验证
+
+### 3. 启动网关
+
+```bash
+# 如果已安装为服务
+quantclaw gateway start
+
+# 或前台运行
+quantclaw gateway
+```
+
+### 4. 打开仪表板
+
+```bash
+quantclaw dashboard
+```
+
+这会在 `http://127.0.0.1:18790` 打开 Web UI
 
 ## 架构
 
@@ -141,6 +181,27 @@ sudo apt install build-essential cmake libssl-dev \
 ```
 
 ## 使用
+
+### Onboarding 向导
+
+最简单的入门方式是交互式 Onboarding 向导：
+
+```bash
+# 运行完整向导
+quantclaw onboard
+
+# 自动安装守护进程
+quantclaw onboard --install-daemon
+
+# 快速设置（无交互）
+quantclaw onboard --quick
+```
+
+向导会创建：
+- 配置文件（`~/.quantclaw/quantclaw.json`）
+- 工作空间目录（`~/.quantclaw/agents/main/workspace/`）
+- SOUL.md（助手身份文件）
+- 可选的 systemd 服务用于守护进程模式
 
 ### 网关（后台服务）
 

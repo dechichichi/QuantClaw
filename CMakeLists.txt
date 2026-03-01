@@ -64,6 +64,7 @@ set(QUANTCLAW_CORE_SOURCES
     src/cli/gateway_commands.cpp
     src/cli/agent_commands.cpp
     src/cli/session_commands.cpp
+    src/cli/onboard_commands.cpp
     # Gateway
     src/gateway/gateway_server.cpp
     src/gateway/gateway_client.cpp

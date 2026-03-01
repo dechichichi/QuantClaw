@@ -1,0 +1,62 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+#pragma once
+
+#include <memory>
+#include <vector>
+#include <string>
+#include <spdlog/logger.h>
+
+namespace quantclaw::cli {
+
+/**
+ * Onboarding wizard for initial QuantClaw setup
+ * Guides users through configuration, daemon installation, and basic setup
+ */
+class OnboardCommands {
+public:
+    explicit OnboardCommands(std::shared_ptr<spdlog::logger> logger);
+
+    /**
+     * Run the interactive onboarding wizard
+     */
+    int OnboardCommand(const std::vector<std::string>& args);
+
+    /**
+     * Install daemon as system service
+     */
+    int InstallDaemonCommand(const std::vector<std::string>& args);
+
+    /**
+     * Quick setup (non-interactive)
+     */
+    int QuickSetupCommand(const std::vector<std::string>& args);
+
+private:
+    std::shared_ptr<spdlog::logger> logger_;
+
+    // Wizard steps
+    void PrintWelcome();
+    void PrintStep(int current, int total, const std::string& title);
+    std::string PromptString(const std::string& prompt, const std::string& default_value = "");
+    bool PromptYesNo(const std::string& prompt, bool default_value = true);
+    std::string PromptChoice(const std::string& prompt, const std::vector<std::string>& choices);
+
+    // Setup steps
+    int SetupConfig();
+    int SetupWorkspace();
+    int SetupDaemon();
+    int SetupSkills();
+    int SetupChannels();
+    int VerifySetup();
+
+    // Helper functions
+    bool CreateWorkspaceDirectory();
+    bool CreateConfigFile();
+    bool CreateSOULFile();
+    bool InstallDaemon();
+    bool TestGatewayConnection();
+};
+
+} // namespace quantclaw::cli

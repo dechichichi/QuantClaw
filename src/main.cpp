@@ -12,6 +12,7 @@
 #include "quantclaw/cli/gateway_commands.hpp"
 #include "quantclaw/cli/agent_commands.hpp"
 #include "quantclaw/cli/session_commands.hpp"
+#include "quantclaw/cli/onboard_commands.hpp"
 #include "quantclaw/gateway/gateway_client.hpp"
 #include "quantclaw/core/skill_loader.hpp"
 #include "quantclaw/core/memory_search.hpp"
@@ -32,9 +33,38 @@ int main(int argc, char* argv[]) {
     auto gateway_cmds = std::make_shared<quantclaw::cli::GatewayCommands>(logger);
     auto agent_cmds = std::make_shared<quantclaw::cli::AgentCommands>(logger);
     auto session_cmds = std::make_shared<quantclaw::cli::SessionCommands>(logger);
+    auto onboard_cmds = std::make_shared<quantclaw::cli::OnboardCommands>(logger);
 
     // Build CLI
     quantclaw::cli::CLIManager cli;
+
+    // --- onboard command ---
+    cli.AddCommand({
+        "onboard",
+        "Interactive setup wizard for initial configuration",
+        {},
+        [onboard_cmds](int argc, char** argv) -> int {
+            std::vector<std::string> args;
+            for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
+
+            if (args.empty()) {
+                return onboard_cmds->OnboardCommand(args);
+            }
+
+            std::string sub = args[0];
+            std::vector<std::string> sub_args(args.begin() + 1, args.end());
+
+            if (sub == "--install-daemon") {
+                return onboard_cmds->InstallDaemonCommand(sub_args);
+            }
+            if (sub == "--quick") {
+                return onboard_cmds->QuickSetupCommand(sub_args);
+            }
+
+            // Default: run full wizard
+            return onboard_cmds->OnboardCommand(args);
+        }
+    });
 
     // --- gateway command ---
     cli.AddCommand({

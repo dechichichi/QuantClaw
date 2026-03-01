@@ -35,6 +35,8 @@ QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/op
 
 ## Quick Start
 
+### 1. Build QuantClaw
+
 ```bash
 git clone https://github.com/QuantClaw/QuantClaw.git
 cd QuantClaw
@@ -48,6 +50,44 @@ make -j$(nproc)
 # Install (optional)
 sudo make install
 ```
+
+### 2. Run Onboarding Wizard
+
+```bash
+# Interactive setup wizard (recommended)
+quantclaw onboard
+
+# Or with automatic daemon installation
+quantclaw onboard --install-daemon
+
+# Or quick setup without prompts
+quantclaw onboard --quick
+```
+
+The onboarding wizard guides you through:
+- Configuration setup (gateway port, AI model, etc.)
+- Workspace creation (SOUL.md, skills directory, etc.)
+- Optional daemon installation as system service
+- Skills initialization
+- Setup verification
+
+### 3. Start the Gateway
+
+```bash
+# If installed as service
+quantclaw gateway start
+
+# Or run in foreground
+quantclaw gateway
+```
+
+### 4. Open Dashboard
+
+```bash
+quantclaw dashboard
+```
+
+This opens the web UI at `http://127.0.0.1:18790`
 
 ## Architecture
 
@@ -132,6 +172,27 @@ The model field uses `provider/model-name` prefix routing. If no prefix is given
 - Google Test 1.14.0 — testing framework
 
 ## Usage
+
+### Onboarding Wizard
+
+The easiest way to get started is the interactive onboarding wizard:
+
+```bash
+# Run the full wizard
+quantclaw onboard
+
+# Install daemon automatically
+quantclaw onboard --install-daemon
+
+# Quick setup (non-interactive)
+quantclaw onboard --quick
+```
+
+The wizard creates:
+- Configuration file (`~/.quantclaw/quantclaw.json`)
+- Workspace directory (`~/.quantclaw/agents/main/workspace/`)
+- SOUL.md (agent identity file)
+- Optional systemd service for daemon mode
 
 ### Gateway (background service)
 
