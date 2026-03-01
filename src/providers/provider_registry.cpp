@@ -211,6 +211,28 @@ std::shared_ptr<LLMProvider> ProviderRegistry::GetProviderForModel(
   return GetProvider(ref.provider);
 }
 
+std::shared_ptr<LLMProvider> ProviderRegistry::GetProviderWithKey(
+    const std::string& provider_id,
+    const std::string& api_key) {
+  auto fit = factories_.find(provider_id);
+  if (fit == factories_.end()) {
+    logger_->error("No factory for provider: {}", provider_id);
+    return nullptr;
+  }
+
+  // Build a temporary entry with the given API key
+  ProviderEntry entry;
+  auto eit = entries_.find(provider_id);
+  if (eit != entries_.end()) {
+    entry = eit->second;
+  } else {
+    entry.id = provider_id;
+  }
+  entry.api_key = api_key;
+
+  return fit->second(entry, logger_);
+}
+
 std::vector<std::string> ProviderRegistry::ProviderIds() const {
   std::vector<std::string> ids;
   for (const auto& [id, _] : entries_) {

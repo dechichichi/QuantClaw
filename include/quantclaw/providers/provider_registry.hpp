@@ -81,6 +81,12 @@ class ProviderRegistry {
   // Get or create a provider for a model ref
   std::shared_ptr<LLMProvider> GetProviderForModel(const ModelRef& ref);
 
+  // Create a provider instance using a specific API key
+  // (for multi-profile auth rotation). Not cached.
+  std::shared_ptr<LLMProvider> GetProviderWithKey(
+      const std::string& provider_id,
+      const std::string& api_key);
+
   // List all registered provider IDs
   std::vector<std::string> ProviderIds() const;
 

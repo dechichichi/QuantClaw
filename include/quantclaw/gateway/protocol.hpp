@@ -254,6 +254,12 @@ namespace methods {
     constexpr const char* kPluginsCommands   = "plugins.commands";
     constexpr const char* kPluginsGateway    = "plugins.gateway";
 
+    // Queue management
+    constexpr const char* kQueueStatus        = "queue.status";
+    constexpr const char* kQueueConfigure     = "queue.configure";
+    constexpr const char* kQueueCancel        = "queue.cancel";
+    constexpr const char* kQueueAbort         = "queue.abort";
+
     // OpenClaw-compatible method names
     constexpr const char* kOcConnect          = "connect";
     constexpr const char* kOcChatSend         = "chat.send";
@@ -275,6 +281,11 @@ namespace events {
     constexpr const char* kToolResult       = "agent.tool_result";
     constexpr const char* kMessageEnd       = "agent.message_end";
     constexpr const char* kTick             = "gateway.tick";
+
+    // Queue events
+    constexpr const char* kQueueStarted    = "queue.started";
+    constexpr const char* kQueueCompleted  = "queue.completed";
+    constexpr const char* kQueueDropped    = "queue.dropped";
 
     // OpenClaw-compatible event names
     constexpr const char* kOcAgent = "agent";

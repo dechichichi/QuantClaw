@@ -88,6 +88,9 @@ public:
     void RegisterHandler(const std::string& method, RpcHandler handler);
     void BroadcastEvent(const std::string& event, const nlohmann::json& payload);
     void SendEventTo(const std::string& connection_id, const RpcEvent& event);
+    void SendResponseTo(const std::string& connection_id,
+                        const std::string& rpc_request_id,
+                        bool ok, const nlohmann::json& payload_or_error);
 
     int GetPort() const { return port_; }
     size_t GetConnectionCount() const;

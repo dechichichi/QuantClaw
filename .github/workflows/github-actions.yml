@@ -80,10 +80,10 @@ jobs:
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11
       with:
-        vcpkgGitCommitId: '01f602195983451bc83e72f4214af2cbc495aa94'
+        vcpkgGitCommitId: '66c0373dc7fca549e5803087b9487edfe3aca0a1'
 
     - name: Install dependencies
-      run: vcpkg install spdlog nlohmann-json curl openssl --triplet x64-windows
+      run: vcpkg install spdlog nlohmann-json curl openssl zlib --triplet x64-windows
 
     - name: Configure CMake
       run: |

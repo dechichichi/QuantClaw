@@ -14,6 +14,7 @@
 #include "quantclaw/security/exec_approval.hpp"
 #include "quantclaw/core/session_compaction.hpp"
 #include "quantclaw/plugins/plugin_system.hpp"
+#include "quantclaw/gateway/command_queue.hpp"
 #include "quantclaw/config.hpp"
 #include <chrono>
 #include <functional>
@@ -35,7 +36,8 @@ void register_rpc_handlers(
     std::shared_ptr<quantclaw::SkillLoader> skill_loader,
     std::shared_ptr<quantclaw::CronScheduler> cron_scheduler,
     std::shared_ptr<quantclaw::ExecApprovalManager> exec_approval_mgr,
-    quantclaw::PluginSystem* plugin_system)
+    quantclaw::PluginSystem* plugin_system,
+    CommandQueue* command_queue)
 {
     // --- gateway.health ---
     server.RegisterHandler(methods::kGatewayHealth,
@@ -939,12 +941,73 @@ void register_rpc_handlers(
         );
     }
 
+    // ================================================================
+    // Queue management RPC handlers
+    // ================================================================
+    if (command_queue) {
+        // --- queue.status ---
+        server.RegisterHandler(methods::kQueueStatus,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string session_key = params.value("sessionKey", "");
+                if (!session_key.empty()) {
+                    return command_queue->SessionQueueStatus(session_key);
+                }
+                return command_queue->GlobalStatus();
+            }
+        );
+
+        // --- queue.configure ---
+        server.RegisterHandler(methods::kQueueConfigure,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string session_key = params.value("sessionKey", "");
+                if (session_key.empty()) {
+                    // Global config update
+                    auto new_config = QueueConfig::FromJson(params);
+                    command_queue->SetConfig(new_config);
+                    return {{"ok", true}, {"scope", "global"}};
+                }
+                // Per-session config
+                auto mode = QueueModeFromString(params.value("mode", "collect"));
+                int debounce = params.value("debounceMs", -1);
+                int cap = params.value("cap", -1);
+                std::string drop = params.value("drop", "");
+                command_queue->ConfigureSession(session_key, mode, debounce, cap, drop);
+                return {{"ok", true}, {"scope", "session"}, {"sessionKey", session_key}};
+            }
+        );
+
+        // --- queue.cancel ---
+        server.RegisterHandler(methods::kQueueCancel,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string command_id = params.value("commandId", "");
+                if (command_id.empty()) {
+                    throw std::runtime_error("commandId is required");
+                }
+                bool cancelled = command_queue->Cancel(command_id);
+                return {{"ok", cancelled}, {"commandId", command_id}};
+            }
+        );
+
+        // --- queue.abort ---
+        server.RegisterHandler(methods::kQueueAbort,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string session_key = params.value("sessionKey", "");
+                if (session_key.empty()) {
+                    throw std::runtime_error("sessionKey is required");
+                }
+                bool aborted = command_queue->AbortSession(session_key);
+                return {{"ok", aborted}, {"sessionKey", session_key}};
+            }
+        );
+    }
+
     int handler_count = 22;  // base handlers
     if (reload_fn) handler_count++;
     if (skill_loader) handler_count += 2;
     if (cron_scheduler) handler_count += 3;
     if (exec_approval_mgr) handler_count += 2;
     if (plugin_system) handler_count += 7;
+    if (command_queue) handler_count += 4;
     logger->info("Registered {} RPC handlers", handler_count);
 }
 

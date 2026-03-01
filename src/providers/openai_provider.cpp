@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "quantclaw/providers/openai_provider.hpp"
+#include "quantclaw/providers/provider_error.hpp"
 
 #include <sstream>
 
@@ -172,9 +173,31 @@ std::string OpenAIProvider::MakeApiRequest(
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        throw std::runtime_error(
-            "CURL request failed: " +
-            std::string(curl_easy_strerror(res)));
+        // Map CURL errors to ProviderError
+        ProviderErrorKind kind = ProviderErrorKind::kUnknown;
+        if (res == CURLE_OPERATION_TIMEDOUT) {
+            kind = ProviderErrorKind::kTimeout;
+        } else if (res == CURLE_COULDNT_CONNECT ||
+                   res == CURLE_COULDNT_RESOLVE_HOST) {
+            kind = ProviderErrorKind::kTransient;
+        }
+        throw ProviderError(kind, 0,
+                            "CURL request failed: " +
+                            std::string(curl_easy_strerror(res)),
+                            "openai");
+    }
+
+    // Check HTTP status code
+    long http_code = 0;
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code >= 400) {
+        auto error_kind = ClassifyHttpError(
+            static_cast<int>(http_code), read_buffer);
+        throw ProviderError(error_kind, static_cast<int>(http_code),
+                            "OpenAI API error (HTTP " +
+                            std::to_string(http_code) + "): " + read_buffer,
+                            "openai");
     }
 
     return read_buffer;
@@ -356,9 +379,29 @@ void OpenAIProvider::ChatCompletionStream(const ChatCompletionRequest& request,
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        throw std::runtime_error(
-            "CURL streaming request failed: " +
-            std::string(curl_easy_strerror(res)));
+        ProviderErrorKind kind = ProviderErrorKind::kUnknown;
+        if (res == CURLE_OPERATION_TIMEDOUT) {
+            kind = ProviderErrorKind::kTimeout;
+        } else if (res == CURLE_COULDNT_CONNECT ||
+                   res == CURLE_COULDNT_RESOLVE_HOST) {
+            kind = ProviderErrorKind::kTransient;
+        }
+        throw ProviderError(kind, 0,
+                            "CURL streaming request failed: " +
+                            std::string(curl_easy_strerror(res)),
+                            "openai");
+    }
+
+    // Check HTTP status code for streaming requests too
+    long http_code = 0;
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code >= 400) {
+        auto error_kind = ClassifyHttpError(static_cast<int>(http_code), "");
+        throw ProviderError(error_kind, static_cast<int>(http_code),
+                            "OpenAI streaming API error (HTTP " +
+                            std::to_string(http_code) + ")",
+                            "openai");
     }
 }
 

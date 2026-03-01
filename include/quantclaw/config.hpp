@@ -18,6 +18,13 @@ struct AgentConfig {
     double temperature = 0.7;
     int max_tokens = 4096;
     std::string thinking = "off";  // "off" | "low" | "medium" | "high"
+    std::vector<std::string> fallbacks;  // Model fallback chain
+
+    // Auto-compaction settings
+    bool auto_compact = true;          // Enable automatic compaction
+    int compact_max_messages = 100;    // Compact when history exceeds this
+    int compact_keep_recent = 20;      // Keep this many recent messages
+    int compact_max_tokens = 100000;   // Compact when tokens exceed this
 
     static AgentConfig FromJson(const nlohmann::json& json);
 };
@@ -197,6 +204,9 @@ struct QuantClawConfig {
 
     // Exec approval config (raw JSON, consumed by ExecApprovalManager)
     nlohmann::json exec_approval_config;
+
+    // Queue config (raw JSON, consumed by CommandQueue)
+    nlohmann::json queue_config;
 
     // Legacy compatibility
     std::unordered_map<std::string, ToolConfig> tools;

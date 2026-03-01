@@ -28,6 +28,15 @@ void MemorySearch::IndexDirectory(const std::filesystem::path& dir) {
     }
   }
 
+  // Recompute average document length for BM25
+  if (!entries_.empty()) {
+    double total_len = 0;
+    for (const auto& e : entries_) {
+      total_len += e.tokens.size();
+    }
+    avg_doc_length_ = total_len / entries_.size();
+  }
+
   logger_->info("Indexed {} entries from {}", entries_.size(), dir.string());
 }
 
@@ -71,6 +80,15 @@ void MemorySearch::IndexFile(const std::filesystem::path& file) {
     paragraph += line;
   }
   flush_paragraph();
+
+  // Update average document length for BM25
+  if (!entries_.empty()) {
+    double total_len = 0;
+    for (const auto& e : entries_) {
+      total_len += e.tokens.size();
+    }
+    avg_doc_length_ = total_len / entries_.size();
+  }
 }
 
 std::vector<MemorySearchResult> MemorySearch::Search(
@@ -113,6 +131,7 @@ nlohmann::json MemorySearch::Stats() const {
 void MemorySearch::Clear() {
   entries_.clear();
   total_documents_ = 0;
+  avg_doc_length_ = 0;
 }
 
 std::vector<std::string> MemorySearch::tokenize(const std::string& text) {
@@ -135,10 +154,23 @@ std::vector<std::string> MemorySearch::tokenize(const std::string& text) {
   return tokens;
 }
 
+int MemorySearch::document_frequency(const std::string& term) const {
+  int count = 0;
+  for (const auto& entry : entries_) {
+    for (const auto& t : entry.tokens) {
+      if (t == term) {
+        count++;
+        break;  // Count each document once
+      }
+    }
+  }
+  return count;
+}
+
 double MemorySearch::score_entry(
     const IndexEntry& entry,
     const std::vector<std::string>& query_tokens) const {
-  if (entry.tokens.empty()) return 0;
+  if (entry.tokens.empty() || total_documents_ == 0) return 0;
 
   // Build term frequency map for the entry
   std::unordered_map<std::string, int> tf;
@@ -146,27 +178,29 @@ double MemorySearch::score_entry(
     tf[t]++;
   }
 
-  // Count matching query tokens and compute TF-IDF-like score
+  double doc_len = static_cast<double>(entry.tokens.size());
+  double avgdl = avg_doc_length_ > 0 ? avg_doc_length_ : doc_len;
+  double N = static_cast<double>(total_documents_);
+
+  // BM25 scoring: score(D, Q) = Σ IDF(qi) * (f(qi,D) * (k1+1)) / (f(qi,D) + k1*(1-b+b*|D|/avgDL))
   double score = 0;
-  int matches = 0;
 
   for (const auto& qt : query_tokens) {
     auto it = tf.find(qt);
-    if (it != tf.end()) {
-      matches++;
-      // TF component: log(1 + count)
-      score += std::log(1.0 + it->second);
-    }
+    if (it == tf.end()) continue;
+
+    double f = static_cast<double>(it->second);  // term frequency in doc
+    int df = document_frequency(qt);             // document frequency
+
+    // IDF component: log((N - df + 0.5) / (df + 0.5) + 1)
+    double idf = std::log((N - df + 0.5) / (df + 0.5) + 1.0);
+
+    // BM25 TF component
+    double tf_component = (f * (kBM25_k1 + 1.0)) /
+                          (f + kBM25_k1 * (1.0 - kBM25_b + kBM25_b * doc_len / avgdl));
+
+    score += idf * tf_component;
   }
-
-  if (matches == 0) return 0;
-
-  // Coverage bonus: fraction of query tokens matched
-  double coverage = static_cast<double>(matches) / query_tokens.size();
-  score *= coverage;
-
-  // Normalize by document length (shorter docs score higher for same matches)
-  score /= std::log(2.0 + entry.tokens.size());
 
   return score;
 }

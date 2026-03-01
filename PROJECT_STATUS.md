@@ -4,7 +4,7 @@
 
 **QuantClaw** is a C++17 implementation of OpenClaw, a personal AI assistant.
 
-**Current status**: Core features implemented. Gateway (WebSocket + HTTP API), session persistence, multi-provider LLM, tool system, channel adapters, and CLI are all functional with 324 passing tests.
+**Current status**: Core features and plugin ecosystem implemented. Gateway (WebSocket + HTTP API), session persistence, multi-provider LLM, tool system, channel adapters, plugin system with Node.js sidecar, and CLI are all functional with 552 C++ tests + 57 sidecar tests = 609 total passing tests.
 
 ## Implemented
 
@@ -24,14 +24,14 @@
 ### Gateway
 - **GatewayServer**: WebSocket RPC server (IXWebSocket) with JSON-RPC protocol
   - Nonce-challenge authentication with Bearer token
-  - 11 RPC methods: health, status, config, agent request/stop, sessions CRUD, channels, chain execute
+  - 18 RPC methods: health, status, config, agent request/stop, sessions CRUD, channels, chain execute, plugins (list/tools/call_tool/services/providers/commands/gateway)
   - Real-time streaming events (text_delta, tool_use, tool_result, message_end)
 - **GatewayClient**: WebSocket RPC client for CLI commands
 - **DaemonManager**: systemd/launchd service management (install, start, stop, restart)
 
 ### HTTP API (Control Panel)
 - **WebServer**: HTTP REST server (cpp-httplib) with CORS and Bearer token auth
-- **10 REST endpoints** mirroring WebSocket RPC:
+- **18 REST endpoints** mirroring WebSocket RPC:
   - `GET /api/health` — status, uptime, version
   - `GET /api/status` — gateway state with connections/sessions count
   - `GET /api/config` — configuration values (optional `?path=` dot-path)
@@ -42,6 +42,13 @@
   - `POST /api/sessions/delete` — delete session
   - `POST /api/sessions/reset` — reset session
   - `GET /api/channels` — list channels
+  - `GET /api/plugins` — list loaded plugins
+  - `GET /api/plugins/tools` — plugin tool schemas
+  - `POST /api/plugins/tools/:name` — call a plugin tool
+  - `GET /api/plugins/services` — list plugin services
+  - `GET /api/plugins/providers` — list plugin providers
+  - `GET /api/plugins/commands` — list plugin commands
+  - `GET/POST /plugins/*` — plugin HTTP route forwarding
 - Default port: 18790 (configurable via `gateway.controlUi.port`)
 
 ### Channel Adapters
@@ -69,6 +76,23 @@
 - **MCPClient**: JSON-RPC client for remote tool calls
 - **MCPToolManager**: Auto-discovery and registration of MCP tools into ToolRegistry
 
+### Plugin System
+- **PluginManifest**: Parses `openclaw.plugin.json` / `quantclaw.plugin.json` manifests
+- **PluginRegistry**: Multi-source discovery chain (config > workspace > global > bundled), allow/deny lists, capability tracking from sidecar
+- **SidecarManager**: Node.js child process management, Unix domain socket IPC, JSON-RPC 2.0 protocol, health monitoring
+- **HookManager**: 24 lifecycle hooks with three execution modes (void/modifying/sync), priority ordering
+- **PluginSystem**: Top-level facade integrating registry + sidecar + hooks
+  - Tool execution, HTTP routing, CLI forwarding, service/provider/command management via sidecar
+
+### Node.js Sidecar
+- **RPC Server**: JSON-RPC 2.0 over Unix domain socket
+- **Plugin Loader**: Dynamic TypeScript loading via jiti, OpenClaw SDK shim
+- **Tool Executor**: Plugin tool schema management and execution
+- **Hook Dispatcher**: void/modifying/sync mode dispatch
+- **7 RPC methods**: ping, plugin.list, plugin.tools, plugin.call_tool, plugin.hooks, plugin.http, plugin.cli
+- **Extended RPC**: plugin.services (start/stop/list), plugin.providers, plugin.commands (list/execute), plugin.gateway_methods
+- **57 sidecar tests** (Node.js)
+
 ### CLI
 - **CLIManager**: Command routing with aliases and help display
 - **Commands**: `gateway` (foreground/install/start/stop/restart/status), `agent`, `sessions` (list/history/delete/reset), `status`, `health`, `config`, `skills`, `doctor`
@@ -83,7 +107,7 @@
 - **HTTP Server**: cpp-httplib 0.18.3
 - **WebSocket**: IXWebSocket 11.4.5
 - **TLS**: OpenSSL
-- **Testing**: Google Test 1.14.0 (324 tests)
+- **Testing**: Google Test 1.14.0 (552 C++ tests) + Vitest (57 sidecar tests)
 
 ## Project Rules
 
@@ -97,4 +121,4 @@
 
 ## Last Updated
 
-2026-02-24 | Version: 0.2.0
+2026-03-01 | Version: 0.3.0

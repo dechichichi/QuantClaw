@@ -15,6 +15,16 @@ AgentConfig AgentConfig::FromJson(const nlohmann::json& json) {
     config.temperature = json.value("temperature", 0.7);
     config.max_tokens = json.value("maxTokens", json.value("max_tokens", 4096));
     config.thinking = json.value("thinking", "off");
+    config.fallbacks = json.value("fallbacks", std::vector<std::string>{});
+
+    // Compaction settings
+    config.auto_compact = json.value("autoCompact", json.value("auto_compact", true));
+    config.compact_max_messages = json.value("compactMaxMessages",
+                                              json.value("compact_max_messages", 100));
+    config.compact_keep_recent = json.value("compactKeepRecent",
+                                             json.value("compact_keep_recent", 20));
+    config.compact_max_tokens = json.value("compactMaxTokens",
+                                            json.value("compact_max_tokens", 100000));
     return config;
 }
 
@@ -253,6 +263,13 @@ QuantClawConfig QuantClawConfig::FromJson(const nlohmann::json& json) {
     if (json.contains("tools") && json["tools"].is_object() &&
         json["tools"].contains("exec") && json["tools"]["exec"].is_object()) {
         config.exec_approval_config = json["tools"]["exec"];
+    }
+
+    // ================================================================
+    // Queue (command queue config, consumed by CommandQueue)
+    // ================================================================
+    if (json.contains("queue") && json["queue"].is_object()) {
+        config.queue_config = json["queue"];
     }
 
     // ================================================================

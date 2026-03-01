@@ -20,6 +20,7 @@ class SkillLoader;
 class ToolRegistry;
 class ProviderRegistry;
 class SubagentManager;
+class FailoverResolver;
 
 // --- Agent Event (for streaming) ---
 
@@ -71,6 +72,12 @@ public:
     // Set subagent manager for spawning child agents
     void SetSubagentManager(SubagentManager* manager) { subagent_manager_ = manager; }
 
+    // Set failover resolver for multi-profile key rotation and model fallback
+    void SetFailoverResolver(FailoverResolver* resolver) { failover_resolver_ = resolver; }
+
+    // Set session key for failover session pinning
+    void SetSessionKey(const std::string& key) { session_key_ = key; }
+
     // Set model dynamically (resolves via ProviderRegistry if available)
     void SetModel(const std::string& model_ref);
 
@@ -87,10 +94,16 @@ private:
     std::shared_ptr<LLMProvider> llm_provider_;       // Fallback / injected provider
     ProviderRegistry* provider_registry_ = nullptr;    // Non-owning, optional
     SubagentManager* subagent_manager_ = nullptr;      // Non-owning, optional
+    FailoverResolver* failover_resolver_ = nullptr;    // Non-owning, optional
+    std::string session_key_;                          // For failover session pinning
     std::shared_ptr<spdlog::logger> logger_;
     AgentConfig agent_config_;
     std::atomic<bool> stop_requested_{false};
     int max_iterations_ = 15;
+
+    // Tracking last resolved provider/profile for failover reporting
+    std::string last_provider_id_;
+    std::string last_profile_id_;
 };
 
 } // namespace quantclaw

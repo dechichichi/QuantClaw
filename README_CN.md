@@ -23,9 +23,13 @@ QuantClaw 是 [OpenClaw](https://github.com/openclaw/openclaw) 生态的 C++ 原
 - **OpenClaw 兼容**：兼容 OpenClaw 工作空间文件、技能和配置格式
 - **双协议接入**：WebSocket RPC 网关 + HTTP REST API
 - **多模型支持**：OpenAI 兼容接口和 Anthropic API，通过 `provider/model` 前缀路由
+- **模型故障转移**：多 API Key 轮换 + 指数退避冷却 + 自动模型回退链
+- **命令队列**：per-session 串行保证，支持 collect/followup/steer/interrupt 模式和全局并发控制
+- **上下文治理**：自动压缩、工具结果裁剪、BM25 记忆搜索
 - **频道适配器**：接入 Discord、Telegram 或自定义机器人
 - **会话持久化**：完整对话历史（含工具调用上下文）以 JSONL 格式保存
-- **技能系统**：兼容 OpenClaw SKILL.md 格式
+- **技能系统**：兼容 OpenClaw SKILL.md 格式（同时支持 OpenClaw 和 QuantClaw 两种清单格式）
+- **插件生态**：通过 Node.js Sidecar 完全兼容 OpenClaw 插件——工具、钩子、服务、Provider、命令、HTTP 路由、网关方法
 - **MCP 支持**：Model Context Protocol，接入外部工具服务器
 - **文件系统优先**：无数据库依赖，所有数据存储在工作空间目录
 
@@ -71,17 +75,25 @@ sudo make install
 
 ```json
 {
-  "llm": {
+  "agent": {
     "model": "openai/qwen-max",
     "maxIterations": 15,
     "temperature": 0.7,
-    "maxTokens": 4096
+    "maxTokens": 4096,
+    "fallbacks": ["anthropic/claude-sonnet-4-6"],
+    "autoCompact": true,
+    "compactMaxMessages": 100
   },
   "providers": {
     "openai": {
       "apiKey": "YOUR_API_KEY",
       "baseUrl": "https://api.openai.com/v1"
     }
+  },
+  "queue": {
+    "maxConcurrent": 4,
+    "debounceMs": 1000,
+    "defaultMode": "collect"
   },
   "gateway": {
     "port": 18789,
@@ -230,6 +242,26 @@ curl "http://localhost:18790/api/sessions/history?sessionKey=my:session"
 curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
 ```
 
+### 插件 API 接口
+
+```bash
+# 列出已加载插件
+curl http://localhost:18790/api/plugins
+
+# 获取插件工具 Schema
+curl http://localhost:18790/api/plugins/tools
+
+# 调用插件工具
+curl -X POST http://localhost:18790/api/plugins/tools/my-tool \
+  -H "Content-Type: application/json" \
+  -d '{"arg1": "value"}'
+
+# 列出插件服务 / Provider / 命令
+curl http://localhost:18790/api/plugins/services
+curl http://localhost:18790/api/plugins/providers
+curl http://localhost:18790/api/plugins/commands
+```
+
 ## WebSocket RPC 协议（OpenClaw 兼容）
 
 网关在端口 18789 暴露 WebSocket RPC 接口：
@@ -238,7 +270,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
 2. 客户端回复 `connect.hello`（含认证 token）
 3. 客户端发送 JSON-RPC 请求 → 服务端返回结果
 
-**可用 RPC 方法**：`gateway.health`、`gateway.status`、`config.get`、`agent.request`、`agent.stop`、`sessions.list`、`sessions.history`、`sessions.delete`、`sessions.reset`、`channels.list`、`chain.execute`
+**可用 RPC 方法**：`gateway.health`、`gateway.status`、`config.get`、`agent.request`、`agent.stop`、`sessions.list`、`sessions.history`、`sessions.delete`、`sessions.reset`、`channels.list`、`chain.execute`、`plugins.list`、`plugins.tools`、`plugins.call_tool`、`plugins.services`、`plugins.providers`、`plugins.commands`、`plugins.gateway`、`queue.status`、`queue.configure`、`queue.cancel`、`queue.abort`
 
 流式响应会实时推送事件：`text_delta`、`tool_use`、`tool_result`、`message_end`。
 
@@ -261,10 +293,44 @@ docker run -d \
 
 Docker 镜像使用多阶段构建（基于 Ubuntu 22.04），以非 root 用户运行。配置数据通过 `/home/quantclaw/.quantclaw` 卷持久化。
 
+## 插件生态
+
+QuantClaw 通过 Node.js Sidecar 进程运行 OpenClaw TypeScript 插件。C++ 主进程管理 Sidecar 生命周期，通过 Unix domain socket 以 JSON-RPC 2.0 协议通信。
+
+**支持的插件能力**：
+- **工具（Tools）**：插件定义的工具，可被 Agent 调用
+- **钩子（Hooks）**：24 种生命周期钩子（void/modifying/sync 三种模式）
+- **服务（Services）**：后台服务，支持启动/停止管理
+- **Provider**：自定义 LLM Provider
+- **命令（Commands）**：暴露给 Agent 的斜杠命令
+- **HTTP 路由**：通过 `/plugins/*` 暴露插件定义的 HTTP 接口
+- **网关方法**：通过 `plugins.gateway` 暴露插件定义的 RPC 方法
+
+**插件发现**（按优先级排列）：
+1. 配置指定路径（`plugins.load.paths`）
+2. 工作空间插件（`.openclaw/plugins/` 或 `.quantclaw/plugins/`）
+3. 全局插件（`~/.quantclaw/plugins/`）
+4. 内置插件（`~/.quantclaw/bundled-plugins/`）
+
+插件使用 `openclaw.plugin.json` 或 `quantclaw.plugin.json` 清单文件，与 OpenClaw 插件格式兼容。
+
+```json
+{
+  "plugins": {
+    "allow": ["my-plugin"],
+    "deny": [],
+    "entries": {
+      "my-plugin": { "enabled": true, "config": {} }
+    }
+  }
+}
+```
+
 ## 兼容性
 
 - **工作空间文件**：兼容 OpenClaw（`SOUL.md`、`USER.md`、`MEMORY.md`）
-- **技能系统**：使用 OpenClaw SKILL.md 格式
+- **技能系统**：使用 OpenClaw SKILL.md 格式（支持 `metadata.openclaw` 嵌套格式和扁平格式）
+- **插件系统**：完全兼容 OpenClaw 插件——工具、钩子、服务、Provider、命令
 - **配置格式**：JSON 格式，兼容 OpenClaw 生态
 - **协议**：WebSocket RPC，`connect` + `chat.send` 流程，可与 OpenClaw 客户端互通
 

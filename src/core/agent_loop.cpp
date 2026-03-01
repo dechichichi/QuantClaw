@@ -7,6 +7,10 @@
 #include "quantclaw/gateway/protocol.hpp"
 #include "quantclaw/core/skill_loader.hpp"
 #include "quantclaw/providers/provider_registry.hpp"
+#include "quantclaw/providers/failover_resolver.hpp"
+#include "quantclaw/providers/provider_error.hpp"
+#include "quantclaw/core/session_compaction.hpp"
+#include "quantclaw/core/context_pruner.hpp"
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <sstream>
@@ -35,6 +39,25 @@ AgentLoop::AgentLoop(std::shared_ptr<MemoryManager> memory_manager,
 }
 
 std::shared_ptr<LLMProvider> AgentLoop::resolve_provider() {
+    // If failover resolver is available, use it for profile rotation + fallback
+    if (failover_resolver_) {
+        auto resolved = failover_resolver_->Resolve(
+            agent_config_.model, session_key_);
+        if (resolved) {
+            last_provider_id_ = resolved->provider_id;
+            last_profile_id_ = resolved->profile_id;
+            // Update model to the resolved model name (may differ if fallback)
+            agent_config_.model = resolved->model;
+            if (resolved->is_fallback) {
+                logger_->info("Using fallback model: {}/{}", resolved->provider_id, resolved->model);
+            }
+            return resolved->provider;
+        }
+        logger_->error("FailoverResolver exhausted all models/profiles for '{}'",
+                       agent_config_.model);
+        // Fall through to registry / injected provider
+    }
+
     if (!provider_registry_) {
         return llm_provider_;
     }
@@ -42,6 +65,8 @@ std::shared_ptr<LLMProvider> AgentLoop::resolve_provider() {
     auto ref = provider_registry_->ResolveModel(agent_config_.model);
     auto provider = provider_registry_->GetProviderForModel(ref);
     if (provider) {
+        last_provider_id_ = ref.provider;
+        last_profile_id_ = "";
         // Update model to stripped name (without provider prefix)
         agent_config_.model = ref.model;
         return provider;
@@ -67,6 +92,29 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
 
     std::vector<Message> new_messages;
 
+    // --- Auto-compaction: truncate history if too large ---
+    std::vector<Message> effective_history = history;
+    if (agent_config_.auto_compact &&
+        static_cast<int>(effective_history.size()) > agent_config_.compact_max_messages) {
+        int keep = agent_config_.compact_keep_recent;
+        int total = static_cast<int>(effective_history.size());
+        if (total > keep) {
+            int removed = total - keep;
+            effective_history.assign(
+                history.end() - keep, history.end());
+            // Prepend truncation notice
+            effective_history.insert(effective_history.begin(),
+                Message{"system", "[Earlier " + std::to_string(removed) +
+                                  " messages truncated for context management]"});
+            logger_->info("Auto-compacted history: {} -> {} messages", total,
+                          static_cast<int>(effective_history.size()));
+        }
+    }
+
+    // --- Tool result pruning ---
+    ContextPruner::Options prune_opts;
+    effective_history = ContextPruner::Prune(effective_history, prune_opts);
+
     // Build context: system + history + new user message
     std::vector<Message> context;
 
@@ -76,7 +124,7 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
     }
 
     // History
-    for (const auto& msg : history) {
+    for (const auto& msg : effective_history) {
         context.push_back(msg);
     }
 
@@ -104,11 +152,19 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
     request.tools = tools_json.get<std::vector<nlohmann::json>>();
     request.tool_choice_auto = true;
 
+    // Save original model for failover re-resolution
+    std::string original_model = agent_config_.model;
     int iterations = 0;
 
     while (iterations < max_iterations_ && !stop_requested_) {
         try {
             auto response = provider->ChatCompletion(request);
+
+            // Record success for failover tracking
+            if (failover_resolver_ && !last_provider_id_.empty()) {
+                failover_resolver_->RecordSuccess(
+                    last_provider_id_, last_profile_id_, session_key_);
+            }
 
             if (!response.tool_calls.empty()) {
                 logger_->info("LLM requested {} tool calls", response.tool_calls.size());
@@ -158,6 +214,37 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
             logger_->error("Unexpected LLM response format");
             break;
 
+        } catch (const ProviderError& pe) {
+            // Record failure for failover tracking
+            if (failover_resolver_ && !last_provider_id_.empty()) {
+                failover_resolver_->RecordFailure(
+                    last_provider_id_, last_profile_id_, pe.Kind());
+
+                // Try to re-resolve with a different profile or fallback model
+                logger_->warn("Provider error ({}), attempting failover: {}",
+                              ProviderErrorKindToString(pe.Kind()), pe.what());
+
+                // Restore original model for re-resolution
+                agent_config_.model = original_model;
+                auto new_provider = resolve_provider();
+                if (new_provider && new_provider != provider) {
+                    provider = new_provider;
+                    // Update the request model to the newly resolved model
+                    request.model = agent_config_.model;
+                    iterations++;
+                    continue;
+                }
+            }
+
+            // No failover available or failover also failed
+            logger_->error("Provider error with no failover available: {}", pe.what());
+            if (iterations < max_iterations_ - 1) {
+                std::this_thread::sleep_for(std::chrono::seconds(1 << iterations));
+                iterations++;
+                continue;
+            }
+            throw;
+
         } catch (const std::exception& e) {
             logger_->error("Error in LLM processing: {}", e.what());
             if (iterations < max_iterations_ - 1) {
@@ -192,12 +279,34 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
 
     std::vector<Message> new_messages;
 
+    // --- Auto-compaction: truncate history if too large ---
+    std::vector<Message> effective_history = history;
+    if (agent_config_.auto_compact &&
+        static_cast<int>(effective_history.size()) > agent_config_.compact_max_messages) {
+        int keep = agent_config_.compact_keep_recent;
+        int total = static_cast<int>(effective_history.size());
+        if (total > keep) {
+            int removed = total - keep;
+            effective_history.assign(
+                history.end() - keep, history.end());
+            effective_history.insert(effective_history.begin(),
+                Message{"system", "[Earlier " + std::to_string(removed) +
+                                  " messages truncated for context management]"});
+            logger_->info("Auto-compacted streaming history: {} -> {} messages",
+                          total, static_cast<int>(effective_history.size()));
+        }
+    }
+
+    // --- Tool result pruning ---
+    ContextPruner::Options prune_opts;
+    effective_history = ContextPruner::Prune(effective_history, prune_opts);
+
     // Build context
     std::vector<Message> context;
     if (!system_prompt.empty()) {
         context.push_back(Message{"system", system_prompt});
     }
-    for (const auto& msg : history) {
+    for (const auto& msg : effective_history) {
         context.push_back(msg);
     }
     context.push_back(Message{"user", message});
@@ -222,6 +331,7 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
     request.tools = tools_json.get<std::vector<nlohmann::json>>();
     request.tool_choice_auto = true;
 
+    std::string original_model_stream = agent_config_.model;
     int iterations = 0;
 
     while (iterations < max_iterations_ && !stop_requested_) {
@@ -303,6 +413,12 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
                 }
             });
 
+            // Record success for failover tracking
+            if (failover_resolver_ && !last_provider_id_.empty()) {
+                failover_resolver_->RecordSuccess(
+                    last_provider_id_, last_profile_id_, session_key_);
+            }
+
             // If we got a final response without tool calls, we're done
             if (!full_response.empty()) {
                 Message final_msg;
@@ -313,6 +429,31 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
             }
 
             iterations++;
+
+        } catch (const ProviderError& pe) {
+            // Record failure and attempt failover
+            if (failover_resolver_ && !last_provider_id_.empty()) {
+                failover_resolver_->RecordFailure(
+                    last_provider_id_, last_profile_id_, pe.Kind());
+
+                logger_->warn("Streaming provider error ({}), attempting failover: {}",
+                              ProviderErrorKindToString(pe.Kind()), pe.what());
+
+                agent_config_.model = original_model_stream;
+                auto new_provider = resolve_provider();
+                if (new_provider && new_provider != provider) {
+                    provider = new_provider;
+                    request.model = agent_config_.model;
+                    iterations++;
+                    continue;
+                }
+            }
+
+            logger_->error("Error in streaming: {}", pe.what());
+            if (callback) {
+                callback({events::kMessageEnd, {{"error", pe.what()}}});
+            }
+            return new_messages;
 
         } catch (const std::exception& e) {
             logger_->error("Error in streaming: {}", e.what());

@@ -102,6 +102,27 @@ void GatewayServer::SendEventTo(const std::string& connection_id, const RpcEvent
     }
 }
 
+void GatewayServer::SendResponseTo(const std::string& connection_id,
+                                    const std::string& rpc_request_id,
+                                    bool ok,
+                                    const nlohmann::json& payload_or_error) {
+    RpcResponse resp;
+    resp.id = rpc_request_id;
+    resp.ok = ok;
+    if (ok) {
+        resp.payload = payload_or_error;
+    } else {
+        resp.error = payload_or_error.value("error", "unknown error");
+    }
+
+    std::lock_guard<std::mutex> lock(connections_mutex_);
+    if (connections_.count(connection_id) == 0) return;
+    auto it = ws_connections_.find(connection_id);
+    if (it != ws_connections_.end() && it->second) {
+        it->second->send(resp.ToJson().dump());
+    }
+}
+
 size_t GatewayServer::GetConnectionCount() const {
     std::lock_guard<std::mutex> lock(connections_mutex_);
     return connections_.size();

@@ -47,12 +47,17 @@ set(QUANTCLAW_CORE_SOURCES
     src/core/session_compaction.cpp
     src/core/cron_scheduler.cpp
     src/core/memory_search.cpp
+    src/core/context_pruner.cpp
+    src/core/context_pruner.cpp
     src/core/subagent.cpp
     # Providers
     src/providers/curl_raii.cpp
     src/providers/openai_provider.cpp
     src/providers/anthropic_provider.cpp
     src/providers/provider_registry.cpp
+    src/providers/provider_error.cpp
+    src/providers/cooldown_tracker.cpp
+    src/providers/failover_resolver.cpp
     # CLI
     src/cli/cli_manager.cpp
     src/cli/commands.cpp
@@ -64,6 +69,7 @@ set(QUANTCLAW_CORE_SOURCES
     src/gateway/gateway_client.cpp
     src/gateway/rpc_handlers.cpp
     src/gateway/daemon_manager.cpp
+    src/gateway/command_queue.cpp
     # Session
     src/session/session_manager.cpp
     src/session/session_maintenance.cpp
@@ -197,6 +203,9 @@ if(BUILD_TESTS)
         tests/test_platform.cpp
         tests/test_rbac.cpp
         tests/test_rate_limiter.cpp
+        tests/test_command_queue.cpp
+        tests/test_failover.cpp
+        tests/test_context_management.cpp
     )
 
     add_executable(quantclaw_tests ${TEST_SOURCES})

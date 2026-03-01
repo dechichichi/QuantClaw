@@ -25,6 +25,7 @@
 #include "quantclaw/security/exec_approval.hpp"
 #include "quantclaw/security/rbac.hpp"
 #include "quantclaw/security/rate_limiter.hpp"
+#include "quantclaw/gateway/command_queue.hpp"
 #include "quantclaw/platform/process.hpp"
 #include <atomic>
 #include <functional>
@@ -49,7 +50,8 @@ namespace quantclaw::gateway {
         std::shared_ptr<quantclaw::SkillLoader> skill_loader = nullptr,
         std::shared_ptr<quantclaw::CronScheduler> cron_scheduler = nullptr,
         std::shared_ptr<quantclaw::ExecApprovalManager> exec_approval_mgr = nullptr,
-        quantclaw::PluginSystem* plugin_system = nullptr);
+        quantclaw::PluginSystem* plugin_system = nullptr,
+        gateway::CommandQueue* command_queue = nullptr);
 }
 
 namespace quantclaw::cli {
@@ -269,10 +271,77 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
     tool_registry->SetSubagentManager(subagent_manager.get(), "main");
     agent_loop->SetSubagentManager(subagent_manager.get());
 
+    // Initialize command queue
+    gateway::QueueConfig queue_config;
+    if (!config.queue_config.is_null()) {
+        queue_config = gateway::QueueConfig::FromJson(config.queue_config);
+    }
+
+    auto command_queue = std::make_unique<gateway::CommandQueue>(
+        queue_config,
+        // AgentExecutor: runs the agent loop for a queued command
+        [session_manager, agent_loop, prompt_builder, &server, logger = logger_](
+            const gateway::QueuedCommand& cmd,
+            std::function<void(const std::string&, const nlohmann::json&)> event_sink)
+            -> nlohmann::json {
+            std::string session_key = cmd.params.value("sessionKey", cmd.session_key);
+
+            session_manager->GetOrCreate(session_key, "", "cli");
+            session_manager->AppendMessage(session_key, "user", cmd.message);
+
+            std::string system_prompt = prompt_builder->BuildFull();
+            auto history = session_manager->GetHistory(session_key, 50);
+
+            std::vector<quantclaw::Message> llm_history;
+            for (const auto& smsg : history) {
+                quantclaw::Message m;
+                m.role = smsg.role;
+                m.content = smsg.content;
+                llm_history.push_back(m);
+            }
+            if (!llm_history.empty()) llm_history.pop_back();
+
+            std::string final_response;
+            auto new_messages = agent_loop->ProcessMessageStream(
+                cmd.message, llm_history, system_prompt,
+                [&event_sink, &final_response](const quantclaw::AgentEvent& event) {
+                    event_sink(event.type, event.data);
+                    if (event.type == "agent.message_end" && event.data.contains("content")) {
+                        final_response = event.data["content"].get<std::string>();
+                    }
+                });
+
+            for (const auto& msg : new_messages) {
+                quantclaw::SessionMessage smsg;
+                smsg.role = msg.role;
+                smsg.content = msg.content;
+                session_manager->AppendMessage(session_key, smsg);
+            }
+
+            return {{"sessionKey", session_key}, {"response", final_response}};
+        },
+        // ResponseSender: sends RPC response back to the client
+        [&server](const std::string& conn_id, const std::string& req_id,
+                  bool ok, const nlohmann::json& payload) {
+            server.SendResponseTo(conn_id, req_id, ok, payload);
+        },
+        // EventSender: sends streaming events to the client
+        [&server](const std::string& conn_id, const std::string& event_name,
+                  const nlohmann::json& payload) {
+            gateway::RpcEvent ev;
+            ev.event = event_name;
+            ev.payload = payload;
+            server.SendEventTo(conn_id, ev);
+        },
+        logger_
+    );
+    command_queue->Start();
+
     // Register RPC handlers
     gateway::register_rpc_handlers(server, session_manager, agent_loop, prompt_builder,
         tool_registry, config, logger_, reload_fn, provider_registry,
-        skill_loader, cron_scheduler, exec_approval_mgr);
+        skill_loader, cron_scheduler, exec_approval_mgr,
+        nullptr, command_queue.get());
 
     // Start server
     try {
@@ -399,6 +468,7 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
 
     if (adapter_manager) adapter_manager->Stop();
     if (http_server) http_server->Stop();
+    command_queue->Stop();
     server.Stop();
     logger_->info("Gateway stopped gracefully");
     return 0;

@@ -23,9 +23,13 @@ QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/op
 - **OpenClaw Compatible**: Works with OpenClaw workspace files, skills, and configuration
 - **Dual Protocol**: WebSocket RPC gateway + HTTP REST API
 - **Multi-Provider LLM**: OpenAI-compatible and Anthropic APIs with `provider/model` prefix routing
+- **Model Failover**: Multi-key rotation with exponential backoff cooldowns and automatic model fallback chains
+- **Command Queue**: Per-session serialization with collect/followup/steer/interrupt modes and global concurrency control
+- **Context Management**: Auto-compaction, tool result pruning, and BM25 memory search
 - **Channel Adapters**: Connect Discord, Telegram, or custom bots to the gateway
 - **Session Persistence**: Full conversation history with tool call context preserved in JSONL
-- **Skill System**: Compatible with OpenClaw SKILL.md format
+- **Skill System**: Compatible with OpenClaw SKILL.md format (both OpenClaw and QuantClaw manifest formats)
+- **Plugin Ecosystem**: Full OpenClaw plugin compatibility via Node.js sidecar — tools, hooks, services, providers, commands, HTTP routes, and gateway methods
 - **MCP Support**: Model Context Protocol for external tool integration
 - **File System First**: No database dependencies — everything stored in your workspace
 
@@ -71,17 +75,25 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
 
 ```json
 {
-  "llm": {
+  "agent": {
     "model": "openai/qwen-max",
     "maxIterations": 15,
     "temperature": 0.7,
-    "maxTokens": 4096
+    "maxTokens": 4096,
+    "fallbacks": ["anthropic/claude-sonnet-4-6"],
+    "autoCompact": true,
+    "compactMaxMessages": 100
   },
   "providers": {
     "openai": {
       "apiKey": "YOUR_API_KEY",
       "baseUrl": "https://api.openai.com/v1"
     }
+  },
+  "queue": {
+    "maxConcurrent": 4,
+    "debounceMs": 1000,
+    "defaultMode": "collect"
   },
   "gateway": {
     "port": 18789,
@@ -221,6 +233,26 @@ With authentication enabled, add the `Authorization` header:
 curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
 ```
 
+### Plugin API endpoints
+
+```bash
+# List loaded plugins
+curl http://localhost:18790/api/plugins
+
+# Get tool schemas from plugins
+curl http://localhost:18790/api/plugins/tools
+
+# Call a plugin tool
+curl -X POST http://localhost:18790/api/plugins/tools/my-tool \
+  -H "Content-Type: application/json" \
+  -d '{"arg1": "value"}'
+
+# List plugin services / providers / commands
+curl http://localhost:18790/api/plugins/services
+curl http://localhost:18790/api/plugins/providers
+curl http://localhost:18790/api/plugins/commands
+```
+
 ## WebSocket RPC Protocol (OpenClaw Compatible)
 
 The gateway exposes a WebSocket RPC interface on port 18789:
@@ -229,7 +261,7 @@ The gateway exposes a WebSocket RPC interface on port 18789:
 2. Client responds with `connect.hello` containing auth token
 3. Client sends JSON-RPC requests → server responds with results
 
-**Available RPC methods**: `gateway.health`, `gateway.status`, `config.get`, `agent.request`, `agent.stop`, `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.reset`, `channels.list`, `chain.execute`
+**Available RPC methods**: `gateway.health`, `gateway.status`, `config.get`, `agent.request`, `agent.stop`, `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.reset`, `channels.list`, `chain.execute`, `plugins.list`, `plugins.tools`, `plugins.call_tool`, `plugins.services`, `plugins.providers`, `plugins.commands`, `plugins.gateway`, `queue.status`, `queue.configure`, `queue.cancel`, `queue.abort`
 
 Streaming responses emit real-time events: `text_delta`, `tool_use`, `tool_result`, `message_end`.
 
@@ -252,10 +284,44 @@ docker run -d \
 
 The Docker image uses a multi-stage build (Ubuntu 22.04) and runs as a non-root user. Configuration is persisted via the `/home/quantclaw/.quantclaw` volume.
 
+## Plugin Ecosystem
+
+QuantClaw runs OpenClaw TypeScript plugins via a Node.js sidecar process. The C++ main process manages the sidecar lifecycle and communicates over Unix domain socket using JSON-RPC 2.0.
+
+**Supported plugin capabilities**:
+- **Tools**: Plugin-defined tools callable by the agent
+- **Hooks**: 24 lifecycle hooks (void/modifying/sync modes)
+- **Services**: Background services with start/stop management
+- **Providers**: Custom LLM providers
+- **Commands**: Slash commands exposed to the agent
+- **HTTP Routes**: Plugin-defined HTTP endpoints via `/plugins/*`
+- **Gateway Methods**: Plugin-defined RPC methods via `plugins.gateway`
+
+**Plugin discovery** (in priority order):
+1. Config-specified paths (`plugins.load.paths`)
+2. Workspace plugins (`.openclaw/plugins/` or `.quantclaw/plugins/`)
+3. Global plugins (`~/.quantclaw/plugins/`)
+4. Bundled plugins (`~/.quantclaw/bundled-plugins/`)
+
+Plugins use `openclaw.plugin.json` or `quantclaw.plugin.json` manifests, compatible with the OpenClaw plugin format.
+
+```json
+{
+  "plugins": {
+    "allow": ["my-plugin"],
+    "deny": [],
+    "entries": {
+      "my-plugin": { "enabled": true, "config": {} }
+    }
+  }
+}
+```
+
 ## Compatibility
 
 - **Workspace Files**: Compatible with OpenClaw (`SOUL.md`, `USER.md`, `MEMORY.md`)
-- **Skills**: Uses OpenClaw SKILL.md format
+- **Skills**: Uses OpenClaw SKILL.md format (supports both `metadata.openclaw` and flat formats)
+- **Plugins**: Full OpenClaw plugin compatibility — tools, hooks, services, providers, commands
 - **Configuration**: JSON format compatible with OpenClaw ecosystem
 - **Protocol**: WebSocket RPC with `connect` + `chat.send` — interoperable with OpenClaw clients
 

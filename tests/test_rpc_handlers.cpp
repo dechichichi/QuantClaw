@@ -35,6 +35,7 @@ namespace quantclaw {
     class PluginSystem;
 }
 namespace quantclaw::gateway {
+    class CommandQueue;
     void register_rpc_handlers(
         GatewayServer& server,
         std::shared_ptr<quantclaw::SessionManager> session_manager,
@@ -48,7 +49,8 @@ namespace quantclaw::gateway {
         std::shared_ptr<quantclaw::SkillLoader> skill_loader = nullptr,
         std::shared_ptr<quantclaw::CronScheduler> cron_scheduler = nullptr,
         std::shared_ptr<quantclaw::ExecApprovalManager> exec_approval_mgr = nullptr,
-        quantclaw::PluginSystem* plugin_system = nullptr);
+        quantclaw::PluginSystem* plugin_system = nullptr,
+        quantclaw::gateway::CommandQueue* command_queue = nullptr);
 }
 
 // Minimal mock LLM
