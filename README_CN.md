@@ -87,7 +87,32 @@ quantclaw gateway
 quantclaw dashboard
 ```
 
-这会在 `http://127.0.0.1:18790` 打开 Web UI
+这会在 `http://127.0.0.1:18801` 打开 Web UI
+
+## 端口配置
+
+QuantClaw 使用专属端口范围以避免与 OpenClaw 和其他服务冲突：
+
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| WebSocket RPC 网关 | `18800` | 主网关，客户端连接入口 |
+| HTTP REST API / 仪表板 | `18801` | 控制面板和 REST API |
+| Sidecar IPC (TCP loopback) | `18802-18899` | Node.js Sidecar 进程通信 |
+
+**注意**：QuantClaw 使用端口 `18800-18801`（不同于 OpenClaw 的 `18789-18790`），允许两者同时运行。
+
+要使用自定义端口，编辑 `~/.quantclaw/quantclaw.json`：
+
+```json
+{
+  "gateway": {
+    "port": 18800,
+    "controlUi": {
+      "port": 18801
+    }
+  }
+}
+```
 
 ## 架构
 
@@ -136,10 +161,10 @@ quantclaw dashboard
     "defaultMode": "collect"
   },
   "gateway": {
-    "port": 18789,
+    "port": 18800,
     "bind": "loopback",
     "auth": { "mode": "token", "token": "YOUR_SECRET_TOKEN" },
-    "controlUi": { "enabled": true, "port": 18790 }
+    "controlUi": { "enabled": true, "port": 18801 }
   },
   "channels": {
     "discord": { "enabled": false, "token": "YOUR_DISCORD_TOKEN" },
@@ -277,55 +302,55 @@ QuantClaw 通过频道适配器接入外部消息平台。适配器是独立的 
 
 ## HTTP REST API
 
-网关运行后，HTTP API 在 `http://localhost:18790` 可用：
+网关运行后，HTTP API 在 `http://localhost:18801` 可用：
 
 ```bash
 # 健康检查
-curl http://localhost:18790/api/health
+curl http://localhost:18801/api/health
 
 # 网关状态
-curl http://localhost:18790/api/status
+curl http://localhost:18801/api/status
 
 # 发送消息（非流式）
-curl -X POST http://localhost:18790/api/agent/request \
+curl -X POST http://localhost:18801/api/agent/request \
   -H "Content-Type: application/json" \
   -d '{"message": "你好！", "sessionKey": "my:session"}'
 
 # 列出会话
-curl http://localhost:18790/api/sessions?limit=10
+curl http://localhost:18801/api/sessions?limit=10
 
 # 查看会话历史
-curl "http://localhost:18790/api/sessions/history?sessionKey=my:session"
+curl "http://localhost:18801/api/sessions/history?sessionKey=my:session"
 ```
 
 启用认证时，需添加 `Authorization` 头：
 ```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18801/api/status
 ```
 
 ### 插件 API 接口
 
 ```bash
 # 列出已加载插件
-curl http://localhost:18790/api/plugins
+curl http://localhost:18801/api/plugins
 
 # 获取插件工具 Schema
-curl http://localhost:18790/api/plugins/tools
+curl http://localhost:18801/api/plugins/tools
 
 # 调用插件工具
-curl -X POST http://localhost:18790/api/plugins/tools/my-tool \
+curl -X POST http://localhost:18801/api/plugins/tools/my-tool \
   -H "Content-Type: application/json" \
   -d '{"arg1": "value"}'
 
 # 列出插件服务 / Provider / 命令
-curl http://localhost:18790/api/plugins/services
-curl http://localhost:18790/api/plugins/providers
-curl http://localhost:18790/api/plugins/commands
+curl http://localhost:18801/api/plugins/services
+curl http://localhost:18801/api/plugins/providers
+curl http://localhost:18801/api/plugins/commands
 ```
 
 ## WebSocket RPC 协议（OpenClaw 兼容）
 
-网关在端口 18789 暴露 WebSocket RPC 接口：
+网关在端口 18800 暴露 WebSocket RPC 接口：
 
 1. 客户端连接 → 服务端发送 `connect.challenge`（含 nonce）
 2. 客户端回复 `connect.hello`（含认证 token）
@@ -346,7 +371,8 @@ docker compose -f scripts/docker-compose.yml up -d
 # 或手动构建
 docker build -f scripts/Dockerfile -t quantclaw .
 docker run -d \
-  -p 18789:18789 \
+  -p 18800:18800 \
+  -p 18801:18801 \
   -e OPENAI_API_KEY=your-key \
   -v quantclaw_data:/home/quantclaw/.quantclaw \
   quantclaw

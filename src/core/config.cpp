@@ -123,7 +123,7 @@ SkillsConfig SkillsConfig::FromJson(const nlohmann::json& json) {
 
 GatewayConfig GatewayConfig::FromJson(const nlohmann::json& json) {
     GatewayConfig config;
-    config.port = json.value("port", 18789);
+    config.port = json.value("port", 18800);  // QuantClaw WebSocket RPC port
     config.bind = json.value("bind", "loopback");
     if (json.contains("auth")) {
         config.auth = GatewayAuthConfig::FromJson(json["auth"]);

@@ -14,7 +14,7 @@
 
 ---
 
-QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/openclaw/openclaw) ecosystem — built for performance and low memory footprint while staying fully compatible with OpenClaw workspace files, skills, and the WebSocket RPC protocol.
+QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/openclaw/openclaw) ecosystem �?built for performance and low memory footprint while staying fully compatible with OpenClaw workspace files, skills, and the WebSocket RPC protocol.
 
 ## Features
 
@@ -29,9 +29,9 @@ QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/op
 - **Channel Adapters**: Connect Discord, Telegram, or custom bots to the gateway
 - **Session Persistence**: Full conversation history with tool call context preserved in JSONL
 - **Skill System**: Compatible with OpenClaw SKILL.md format (both OpenClaw and QuantClaw manifest formats)
-- **Plugin Ecosystem**: Full OpenClaw plugin compatibility via Node.js sidecar — tools, hooks, services, providers, commands, HTTP routes, and gateway methods
+- **Plugin Ecosystem**: Full OpenClaw plugin compatibility via Node.js sidecar �?tools, hooks, services, providers, commands, HTTP routes, and gateway methods
 - **MCP Support**: Model Context Protocol for external tool integration
-- **File System First**: No database dependencies — everything stored in your workspace
+- **File System First**: No database dependencies �?everything stored in your workspace
 
 ## Quick Start
 
@@ -87,7 +87,32 @@ quantclaw gateway
 quantclaw dashboard
 ```
 
-This opens the web UI at `http://127.0.0.1:18790`
+This opens the web UI at `http://127.0.0.1:18801`
+
+## Port Configuration
+
+QuantClaw uses dedicated ports to avoid conflicts with OpenClaw and other services:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| WebSocket RPC Gateway | `18800` | Main gateway for client connections |
+| HTTP REST API / Dashboard | `18801` | Control UI and REST API endpoints |
+| Sidecar IPC (TCP loopback) | `18802-18899` | Node.js Sidecar process communication |
+
+**Note**: QuantClaw uses ports `18800-18801` (different from OpenClaw's `18789-18790`), allowing both to run simultaneously.
+
+To use custom ports, edit `~/.quantclaw/quantclaw.json`:
+
+```json
+{
+  "gateway": {
+    "port": 18800,
+    "controlUi": {
+      "port": 18801
+    }
+  }
+}
+```
 
 ## Architecture
 
@@ -96,14 +121,14 @@ This opens the web UI at `http://127.0.0.1:18790`
 ├── quantclaw.json              # Configuration (OpenClaw format)
 └── agents/default/
     ├── workspace/
-    │   ├── SOUL.md             # Assistant identity
-    │   ├── USER.md             # User information
-    │   ├── MEMORY.md           # Long-term memory
-    │   ├── memory/             # Daily memory logs
-    │   │   └── YYYY-MM-DD.md
-    │   └── skills/             # Skills (OpenClaw compatible)
-    │       └── weather/
-    │           └── SKILL.md
+    �?  ├── SOUL.md             # Assistant identity
+    �?  ├── USER.md             # User information
+    �?  ├── MEMORY.md           # Long-term memory
+    �?  ├── memory/             # Daily memory logs
+    �?  �?  └── YYYY-MM-DD.md
+    �?  └── skills/             # Skills (OpenClaw compatible)
+    �?      └── weather/
+    �?          └── SKILL.md
     └── sessions/
         ├── sessions.json       # Session index
         └── <session-id>.jsonl  # Per-session transcript
@@ -136,10 +161,10 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
     "defaultMode": "collect"
   },
   "gateway": {
-    "port": 18789,
+    "port": 18800,
     "bind": "loopback",
     "auth": { "mode": "token", "token": "YOUR_SECRET_TOKEN" },
-    "controlUi": { "enabled": true, "port": 18790 }
+    "controlUi": { "enabled": true, "port": 18801 }
   },
   "channels": {
     "discord": { "enabled": false, "token": "YOUR_DISCORD_TOKEN" },
@@ -161,15 +186,15 @@ The model field uses `provider/model-name` prefix routing. If no prefix is given
 
 **Required (system packages)**:
 - C++17 compiler (GCC 7+, Clang 5+, MSVC 19.14+)
-- spdlog — logging
-- nlohmann/json — JSON library
-- libcurl — HTTP client
-- OpenSSL — TLS/SSL
+- spdlog �?logging
+- nlohmann/json �?JSON library
+- libcurl �?HTTP client
+- OpenSSL �?TLS/SSL
 
 **Fetched automatically by CMake**:
-- IXWebSocket 11.4.5 — WebSocket server/client
-- cpp-httplib 0.18.3 — HTTP server
-- Google Test 1.14.0 — testing framework
+- IXWebSocket 11.4.5 �?WebSocket server/client
+- cpp-httplib 0.18.3 �?HTTP server
+- Google Test 1.14.0 �?testing framework
 
 ## Usage
 
@@ -264,63 +289,63 @@ Enable a channel in your config:
 }
 ```
 
-When the gateway starts, it launches enabled adapters automatically. Each adapter connects via `connect` + `chat.send` RPC calls — the same protocol any OpenClaw-compatible client uses.
+When the gateway starts, it launches enabled adapters automatically. Each adapter connects via `connect` + `chat.send` RPC calls �?the same protocol any OpenClaw-compatible client uses.
 
 ## HTTP REST API
 
-When the gateway is running, the HTTP API is available at `http://localhost:18790`:
+When the gateway is running, the HTTP API is available at `http://localhost:18801`:
 
 ```bash
 # Health check
-curl http://localhost:18790/api/health
+curl http://localhost:18801/api/health
 
 # Gateway status
-curl http://localhost:18790/api/status
+curl http://localhost:18801/api/status
 
 # Send a message (non-streaming)
-curl -X POST http://localhost:18790/api/agent/request \
+curl -X POST http://localhost:18801/api/agent/request \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello!", "sessionKey": "my:session"}'
 
 # List sessions
-curl http://localhost:18790/api/sessions?limit=10
+curl http://localhost:18801/api/sessions?limit=10
 
 # Session history
-curl "http://localhost:18790/api/sessions/history?sessionKey=my:session"
+curl "http://localhost:18801/api/sessions/history?sessionKey=my:session"
 ```
 
 With authentication enabled, add the `Authorization` header:
 ```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18801/api/status
 ```
 
 ### Plugin API endpoints
 
 ```bash
 # List loaded plugins
-curl http://localhost:18790/api/plugins
+curl http://localhost:18801/api/plugins
 
 # Get tool schemas from plugins
-curl http://localhost:18790/api/plugins/tools
+curl http://localhost:18801/api/plugins/tools
 
 # Call a plugin tool
-curl -X POST http://localhost:18790/api/plugins/tools/my-tool \
+curl -X POST http://localhost:18801/api/plugins/tools/my-tool \
   -H "Content-Type: application/json" \
   -d '{"arg1": "value"}'
 
 # List plugin services / providers / commands
-curl http://localhost:18790/api/plugins/services
-curl http://localhost:18790/api/plugins/providers
-curl http://localhost:18790/api/plugins/commands
+curl http://localhost:18801/api/plugins/services
+curl http://localhost:18801/api/plugins/providers
+curl http://localhost:18801/api/plugins/commands
 ```
 
 ## WebSocket RPC Protocol (OpenClaw Compatible)
 
-The gateway exposes a WebSocket RPC interface on port 18789:
+The gateway exposes a WebSocket RPC interface on port 18800:
 
-1. Client connects → server sends `connect.challenge` with nonce
+1. Client connects �?server sends `connect.challenge` with nonce
 2. Client responds with `connect.hello` containing auth token
-3. Client sends JSON-RPC requests → server responds with results
+3. Client sends JSON-RPC requests �?server responds with results
 
 **Available RPC methods**: `gateway.health`, `gateway.status`, `config.get`, `agent.request`, `agent.stop`, `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.reset`, `channels.list`, `chain.execute`, `plugins.list`, `plugins.tools`, `plugins.call_tool`, `plugins.services`, `plugins.providers`, `plugins.commands`, `plugins.gateway`, `queue.status`, `queue.configure`, `queue.cancel`, `queue.abort`
 
@@ -337,7 +362,7 @@ docker compose -f scripts/docker-compose.yml up -d
 # Or build manually
 docker build -f scripts/Dockerfile -t quantclaw .
 docker run -d \
-  -p 18789:18789 \
+  -p 18800:18800 \
   -e OPENAI_API_KEY=your-key \
   -v quantclaw_data:/home/quantclaw/.quantclaw \
   quantclaw
@@ -378,14 +403,14 @@ Plugins use `openclaw.plugin.json` or `quantclaw.plugin.json` manifests, compati
 }
 ```
 
-### IPC Protocol (C++ Main Process ↔ Node.js Sidecar)
+### IPC Protocol (C++ Main Process �?Node.js Sidecar)
 
 The IPC between the C++ host and the sidecar uses **TCP loopback**, which works identically on Linux and Windows:
 
 **Connection setup**:
-1. The C++ host binds to `127.0.0.1:0` — the OS assigns a free port.
+1. The C++ host binds to `127.0.0.1:0` �?the OS assigns a free port.
 2. The assigned port is forwarded to the sidecar child process via the `QUANTCLAW_PORT` environment variable.
-3. The sidecar connects with Node.js's built-in `net.createConnection(port, '127.0.0.1')` — no extra npm packages needed.
+3. The sidecar connects with Node.js's built-in `net.createConnection(port, '127.0.0.1')` �?no extra npm packages needed.
 
 **Frame format (NDJSON)**:
 
@@ -398,7 +423,7 @@ Each message is one JSON object followed by a newline `\n` ([Newline-Delimited J
 
 **Why `\n` never appears inside a JSON object**:
 
-The JSON specification ([RFC 8259 §7](https://www.rfc-editor.org/rfc/rfc8259#section-7)) mandates that control characters (U+0000–U+001F, including newline U+000A) inside strings **must** be escaped as `\n` (backslash + letter n, 2 bytes) — never as raw byte `0x0A`.
+The JSON specification ([RFC 8259 §7](https://www.rfc-editor.org/rfc/rfc8259#section-7)) mandates that control characters (U+0000–U+001F, including newline U+000A) inside strings **must** be escaped as `\n` (backslash + letter n, 2 bytes) �?never as raw byte `0x0A`.
 
 - C++ side: `nlohmann::json::dump()` (no indent) produces compact JSON with all control characters auto-escaped.
 - Node.js side: `JSON.stringify()` (no indent) gives the same guarantee.
@@ -409,13 +434,13 @@ The `\n` byte (`0x0A`) therefore **only** appears as a frame delimiter between m
 
 - **Workspace Files**: Compatible with OpenClaw (`SOUL.md`, `USER.md`, `MEMORY.md`)
 - **Skills**: Uses OpenClaw SKILL.md format (supports both `metadata.openclaw` and flat formats)
-- **Plugins**: Full OpenClaw plugin compatibility — tools, hooks, services, providers, commands
+- **Plugins**: Full OpenClaw plugin compatibility �?tools, hooks, services, providers, commands
 - **Configuration**: JSON format compatible with OpenClaw ecosystem
-- **Protocol**: WebSocket RPC with `connect` + `chat.send` — interoperable with OpenClaw clients
+- **Protocol**: WebSocket RPC with `connect` + `chat.send` �?interoperable with OpenClaw clients
 
 ## License
 
-Apache License 2.0 — See [LICENSE](LICENSE) for details.
+Apache License 2.0 �?See [LICENSE](LICENSE) for details.
 
 ## Contributing
 

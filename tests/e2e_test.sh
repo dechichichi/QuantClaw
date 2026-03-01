@@ -5,7 +5,7 @@ set -euo pipefail
 
 PASS=0
 FAIL=0
-PORT=18789
+PORT=18800
 BINARY="./build/quantclaw"
 GATEWAY_PID=""
 
@@ -79,7 +79,7 @@ cat > "$HOME/.quantclaw/quantclaw.json" <<'EOFCFG'
         "maxTokens": 4096
     },
     "gateway": {
-        "port": 18789,
+        "port": 18800,
         "bind": "loopback",
         "auth": {
             "mode": "none",

@@ -91,7 +91,7 @@ if [ ! -f "$USER_HOME/.quantclaw/quantclaw.json" ]; then
     "temperature": 0.7
   },
   "gateway": {
-    "port": 18789,
+    "port": 18800,
     "bind": "loopback",
     "auth": { "mode": "token" },
     "controlUi": { "enabled": true }

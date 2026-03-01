@@ -54,7 +54,7 @@ RUN mkdir -p /home/quantclaw/.quantclaw/agents/default/workspace && \
 VOLUME ["/home/quantclaw/.quantclaw"]
 
 # Expose ports
-EXPOSE 18789
+EXPOSE 18800 18801
 
 # Switch to non-root user
 USER quantclaw

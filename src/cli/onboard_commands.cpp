@@ -202,7 +202,7 @@ int OnboardCommands::SetupConfig() {
     std::cout << "\nLet's configure QuantClaw:" << std::endl;
 
     std::string model = PromptString("Default AI model", "anthropic/claude-sonnet-4-6");
-    std::string gateway_port = PromptString("Gateway port", "18789");
+    std::string gateway_port = PromptString("Gateway port", "18800");
     std::string gateway_bind = PromptString("Gateway bind address", "127.0.0.1");
 
     if (!CreateConfigFile()) {
@@ -303,7 +303,7 @@ bool OnboardCommands::CreateConfigFile() {
 
         nlohmann::json config = {
             {"gateway", {
-                {"port", 18789},
+                {"port", 18800},
                 {"bind", "127.0.0.1"},
                 {"auth", {{"mode", "token"}}}
             }},

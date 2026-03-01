@@ -96,7 +96,7 @@ TEST_F(ConfigTest, ParseOpenClawFormat) {
             {"temperature", 0.7}
         }},
         {"gateway", {
-            {"port", 18789},
+            {"port", 18800},
             {"bind", "loopback"},
             {"auth", {{"mode", "token"}}},
             {"controlUi", {{"enabled", true}}}
@@ -118,7 +118,7 @@ TEST_F(ConfigTest, ParseOpenClawFormat) {
     EXPECT_EQ(config.agent.model, "anthropic/claude-sonnet-4-6");
     EXPECT_EQ(config.agent.max_iterations, 15);
 
-    EXPECT_EQ(config.gateway.port, 18789);
+    EXPECT_EQ(config.gateway.port, 18800);
     EXPECT_EQ(config.gateway.bind, "loopback");
     EXPECT_EQ(config.gateway.auth.mode, "token");
     EXPECT_TRUE(config.gateway.control_ui.enabled);
@@ -140,7 +140,7 @@ TEST_F(ConfigTest, EmptyConfigUsesDefaults) {
     EXPECT_DOUBLE_EQ(config.agent.temperature, 0.7);
     EXPECT_EQ(config.agent.max_tokens, 4096);
 
-    EXPECT_EQ(config.gateway.port, 18789);
+    EXPECT_EQ(config.gateway.port, 18800);
     EXPECT_EQ(config.gateway.bind, "loopback");
 }
 
@@ -162,7 +162,7 @@ TEST_F(ConfigTest, PartialAgentConfig) {
 
 TEST_F(ConfigTest, GatewayConfigDefaults) {
     quantclaw::GatewayConfig gw;
-    EXPECT_EQ(gw.port, 18789);
+    EXPECT_EQ(gw.port, 18800);
     EXPECT_EQ(gw.bind, "loopback");
     EXPECT_EQ(gw.auth.mode, "token");
     EXPECT_TRUE(gw.control_ui.enabled);
@@ -252,7 +252,7 @@ TEST_F(ConfigTest, GatewayAuthNoneMode) {
 TEST_F(ConfigTest, FullConfigWithAuthToken) {
     nlohmann::json json_config = {
         {"gateway", {
-            {"port", 18789},
+            {"port", 18800},
             {"auth", {{"mode", "token"}, {"token", "my-secret"}}}
         }}
     };

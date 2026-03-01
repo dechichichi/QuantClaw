@@ -33,6 +33,6 @@ mkdir -p "$UI_DIR"
 cp -r dist/* "$UI_DIR/"
 
 # Inject gateway config into index.html
-sed -i 's|<head>|<head><script>window.__QUANTCLAW_GATEWAY_WS_PORT=18789;</script>|' "$UI_DIR/index.html"
+sed -i 's|<head>|<head><script>window.__QUANTCLAW_GATEWAY_WS_PORT=18800;</script>|' "$UI_DIR/index.html"
 
 echo "Done. Dashboard UI installed at $UI_DIR"
