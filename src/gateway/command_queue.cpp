@@ -118,13 +118,41 @@ std::vector<std::string> SessionLane::ApplyCapOverflow() {
     switch (drop_) {
       case DropPolicy::kSummarize: {
         if (pending_.size() >= 2) {
-          // Merge oldest two into one summary
+          // Merge oldest messages into a single summary entry.
+          // Collapse the oldest two: keep snippets of each, prefix
+          // with count so the agent knows how many messages were condensed.
           auto& oldest = pending_[0];
           auto& second = pending_[1];
-          std::string summary = "[Earlier messages summarized] ";
-          summary += oldest.message.substr(0, 100);
-          summary += " ... ";
-          summary += second.message.substr(0, 100);
+
+          // Count how many messages were already summarized
+          int collapsed_count = 1;
+          if (oldest.message.find("[Queue summary:") == 0) {
+            // Extract existing count from "[Queue summary: N messages] ..."
+            auto pos = oldest.message.find(" messages]");
+            if (pos != std::string::npos) {
+              auto start = oldest.message.find(": ") + 2;
+              try {
+                collapsed_count = std::stoi(oldest.message.substr(start, pos - start));
+              } catch (...) {}
+            }
+          }
+          collapsed_count++;  // +1 for the newly merged message
+
+          // Build summary with truncated snippets
+          std::string summary = "[Queue summary: " +
+                                std::to_string(collapsed_count) + " messages] ";
+          // Keep the core content from the existing oldest (may already be a summary)
+          if (oldest.message.find("[Queue summary:") == 0) {
+            auto content_start = oldest.message.find("] ");
+            if (content_start != std::string::npos) {
+              summary += oldest.message.substr(content_start + 2);
+            }
+          } else {
+            summary += oldest.message.substr(0, 150);
+          }
+          summary += " | ";
+          summary += second.message.substr(0, 150);
+
           oldest.message = summary;
           dropped_ids.push_back(second.id);
           pending_.erase(pending_.begin() + 1);
@@ -327,10 +355,19 @@ std::string CommandQueue::Submit(const std::string& session_key,
 
     // Apply cap overflow
     auto dropped = lane.ApplyCapOverflow();
-    for (const auto& did : dropped) {
-      logger_->warn("Queue overflow: dropped command {} for session {}",
-                    did, session_key);
-      command_to_session_.erase(did);
+    if (!dropped.empty()) {
+      for (const auto& did : dropped) {
+        logger_->warn("Queue overflow: collapsed command {} for session {}",
+                      did, session_key);
+        command_to_session_.erase(did);
+      }
+      // Notify the client about the overflow summarization
+      event_sender_(connection_id, "queue.overflow", {
+          {"sessionKey", session_key},
+          {"droppedCount", dropped.size()},
+          {"policy", DropPolicyToString(lane.GetDropPolicy())},
+          {"pendingCount", lane.PendingCount()},
+      });
     }
   }
 

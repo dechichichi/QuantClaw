@@ -15,13 +15,31 @@ bool CooldownTracker::IsInCooldown(const std::string& key) const {
 }
 
 void CooldownTracker::RecordFailure(const std::string& key,
-                                     ProviderErrorKind kind) {
+                                     ProviderErrorKind kind,
+                                     int retry_after_seconds) {
   std::lock_guard<std::mutex> lock(mu_);
+  auto now = std::chrono::steady_clock::now();
   auto& state = states_[key];
+
+  // Failure window decay: if the last failure was more than 24h ago,
+  // reset the consecutive failure counter so backoff restarts from base.
+  if (state.consecutive_failures > 0 &&
+      now - state.last_failure_at > kFailureWindowDecay) {
+    state.consecutive_failures = 0;
+  }
+
   state.consecutive_failures++;
   state.last_error = kind;
-  auto cooldown = ComputeCooldown(kind, state.consecutive_failures);
-  state.cooldown_until = std::chrono::steady_clock::now() + cooldown;
+  state.last_failure_at = now;
+  state.last_probe_at = now;  // Reset probe timer so first probe waits kProbeInterval
+
+  // Prefer server-provided Retry-After over computed backoff
+  if (retry_after_seconds > 0) {
+    state.cooldown_until = now + std::chrono::seconds(retry_after_seconds);
+  } else {
+    auto cooldown = ComputeCooldown(kind, state.consecutive_failures);
+    state.cooldown_until = now + cooldown;
+  }
 }
 
 void CooldownTracker::RecordSuccess(const std::string& key) {
@@ -52,6 +70,23 @@ int CooldownTracker::FailureCount(const std::string& key) const {
   auto it = states_.find(key);
   if (it == states_.end()) return 0;
   return it->second.consecutive_failures;
+}
+
+bool CooldownTracker::TryProbe(const std::string& key) {
+  std::lock_guard<std::mutex> lock(mu_);
+  auto it = states_.find(key);
+  if (it == states_.end()) return false;  // Not in cooldown, no probe needed
+
+  auto now = std::chrono::steady_clock::now();
+  if (now >= it->second.cooldown_until) return false;  // Cooldown expired
+
+  // Check if enough time has passed since the last probe
+  if (now - it->second.last_probe_at < kProbeInterval) {
+    return false;  // Too soon to probe again
+  }
+
+  it->second.last_probe_at = now;
+  return true;
 }
 
 std::chrono::seconds CooldownTracker::ComputeCooldown(

@@ -18,6 +18,33 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
     return size * nmemb;
 }
 
+// Captures the Retry-After header value from HTTP response headers.
+struct RetryAfterCapture {
+    int retry_after_seconds = 0;
+};
+
+static size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    size_t total = size * nitems;
+    auto* capture = static_cast<RetryAfterCapture*>(userdata);
+    std::string header(buffer, total);
+
+    if (header.size() > 12) {
+        std::string lower = header.substr(0, 12);
+        for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower == "retry-after:") {
+            std::string value = header.substr(12);
+            auto start = value.find_first_not_of(" \t");
+            if (start != std::string::npos) {
+                value = value.substr(start);
+            }
+            try {
+                capture->retry_after_seconds = std::stoi(value);
+            } catch (...) {}
+        }
+    }
+    return total;
+}
+
 // Serialize messages to Anthropic format.
 // Returns {system_prompt, messages_json} — system messages extracted to top-level field.
 static std::pair<std::string, nlohmann::json> serialize_messages_to_anthropic(
@@ -203,6 +230,7 @@ std::string AnthropicProvider::GetProviderName() const {
 std::string AnthropicProvider::MakeApiRequest(
     const std::string& json_payload) const {
     std::string read_buffer;
+    RetryAfterCapture retry_capture;
 
     CurlHandle curl;
     CurlSlist headers = CreateHeaders();
@@ -213,6 +241,8 @@ std::string AnthropicProvider::MakeApiRequest(
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &read_buffer);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_capture);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_);
 
     CURLcode res = curl_easy_perform(curl);
@@ -237,10 +267,12 @@ std::string AnthropicProvider::MakeApiRequest(
     if (http_code >= 400) {
         auto error_kind = ClassifyHttpError(
             static_cast<int>(http_code), read_buffer);
-        throw ProviderError(error_kind, static_cast<int>(http_code),
-                            "Anthropic API error (HTTP " +
-                            std::to_string(http_code) + "): " + read_buffer,
-                            "anthropic");
+        ProviderError err(error_kind, static_cast<int>(http_code),
+                          "Anthropic API error (HTTP " +
+                          std::to_string(http_code) + "): " + read_buffer,
+                          "anthropic");
+        err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
+        throw err;
     }
 
     return read_buffer;
@@ -409,6 +441,8 @@ void AnthropicProvider::ChatCompletionStream(const ChatCompletionRequest& reques
     stream_ctx.callback = callback;
     stream_ctx.logger = logger_;
 
+    RetryAfterCapture retry_capture;
+
     CurlHandle curl;
     CurlSlist headers = CreateHeaders();
 
@@ -418,6 +452,8 @@ void AnthropicProvider::ChatCompletionStream(const ChatCompletionRequest& reques
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, AnthropicStreamWriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &stream_ctx);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_capture);
 
     // For streaming: no hard timeout, use low-speed detection instead
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
@@ -444,10 +480,12 @@ void AnthropicProvider::ChatCompletionStream(const ChatCompletionRequest& reques
 
     if (http_code >= 400) {
         auto error_kind = ClassifyHttpError(static_cast<int>(http_code), "");
-        throw ProviderError(error_kind, static_cast<int>(http_code),
-                            "Anthropic streaming API error (HTTP " +
-                            std::to_string(http_code) + ")",
-                            "anthropic");
+        ProviderError err(error_kind, static_cast<int>(http_code),
+                          "Anthropic streaming API error (HTTP " +
+                          std::to_string(http_code) + ")",
+                          "anthropic");
+        err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
+        throw err;
     }
 }
 

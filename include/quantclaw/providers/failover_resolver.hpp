@@ -74,9 +74,11 @@ class FailoverResolver {
                      const std::string& session_key = "");
 
   // Record a failed API call. Sets cooldown based on error kind.
+  // If retry_after_seconds > 0, uses that as cooldown instead of backoff.
   void RecordFailure(const std::string& provider_id,
                      const std::string& profile_id,
-                     ProviderErrorKind kind);
+                     ProviderErrorKind kind,
+                     int retry_after_seconds = 0);
 
   // Clear session pin (e.g., on session reset).
   void ClearSessionPin(const std::string& session_key);

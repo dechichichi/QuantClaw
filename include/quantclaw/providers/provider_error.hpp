@@ -37,11 +37,16 @@ class ProviderError : public std::runtime_error {
   const std::string& ProviderId() const { return provider_id_; }
   const std::string& ProfileId() const { return profile_id_; }
 
+  // Server-provided Retry-After value in seconds (0 = not provided).
+  int RetryAfterSeconds() const { return retry_after_seconds_; }
+  void SetRetryAfterSeconds(int seconds) { retry_after_seconds_ = seconds; }
+
  private:
   ProviderErrorKind kind_;
   int http_status_;
   std::string provider_id_;
   std::string profile_id_;
+  int retry_after_seconds_ = 0;
 };
 
 // Classify an HTTP status code (and optional response body) into

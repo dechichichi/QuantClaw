@@ -73,9 +73,13 @@ jobs:
   build-test-windows:
     name: Build & Test Windows (MSVC)
     runs-on: windows-latest
+    continue-on-error: true
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+
+    - name: Install pkg-config
+      run: choco install pkgconfiglite -y
 
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11

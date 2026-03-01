@@ -1,1 +1,0 @@
-{"version":3,"file":"plugin-runtime-shim.d.ts","sourceRoot":"","sources":["../src/plugin-runtime-shim.ts"],"names":[],"mappings":"AAcA,OAAO,KAAK,EAAE,YAAY,EAAE,aAAa,EAAE,MAAM,YAAY,CAAC;AAkB9D,wBAAgB,mBAAmB,CAAC,IAAI,EAAE;IACxC,MAAM,EAAE,MAAM,CAAC,MAAM,EAAE,OAAO,CAAC,CAAC;IAChC,YAAY,CAAC,EAAE,MAAM,CAAC;IACtB,MAAM,EAAE,YAAY,CAAC;CACtB,GAAG,aAAa,CAkGhB"}

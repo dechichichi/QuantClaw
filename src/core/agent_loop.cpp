@@ -94,6 +94,7 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
 
     // --- Auto-compaction: truncate history if too large ---
     std::vector<Message> effective_history = history;
+    bool compacted = false;
     if (agent_config_.auto_compact &&
         static_cast<int>(effective_history.size()) > agent_config_.compact_max_messages) {
         int keep = agent_config_.compact_keep_recent;
@@ -102,10 +103,13 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
             int removed = total - keep;
             effective_history.assign(
                 history.end() - keep, history.end());
-            // Prepend truncation notice
+            // Prepend truncation notice with context refresh instruction
             effective_history.insert(effective_history.begin(),
-                Message{"system", "[Earlier " + std::to_string(removed) +
-                                  " messages truncated for context management]"});
+                Message{"system", "[Context compaction: " + std::to_string(removed) +
+                                  " earlier messages were removed. "
+                                  "Your system instructions remain active. "
+                                  "Refer to the system prompt for your identity and capabilities.]"});
+            compacted = true;
             logger_->info("Auto-compacted history: {} -> {} messages", total,
                           static_cast<int>(effective_history.size()));
         }
@@ -118,7 +122,7 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
     // Build context: system + history + new user message
     std::vector<Message> context;
 
-    // System message
+    // System message (always first, re-injected after compaction)
     if (!system_prompt.empty()) {
         context.push_back(Message{"system", system_prompt});
     }
@@ -215,10 +219,11 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
             break;
 
         } catch (const ProviderError& pe) {
-            // Record failure for failover tracking
+            // Record failure for failover tracking (with Retry-After if provided)
             if (failover_resolver_ && !last_provider_id_.empty()) {
                 failover_resolver_->RecordFailure(
-                    last_provider_id_, last_profile_id_, pe.Kind());
+                    last_provider_id_, last_profile_id_, pe.Kind(),
+                    pe.RetryAfterSeconds());
 
                 // Try to re-resolve with a different profile or fallback model
                 logger_->warn("Provider error ({}), attempting failover: {}",
@@ -290,8 +295,10 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
             effective_history.assign(
                 history.end() - keep, history.end());
             effective_history.insert(effective_history.begin(),
-                Message{"system", "[Earlier " + std::to_string(removed) +
-                                  " messages truncated for context management]"});
+                Message{"system", "[Context compaction: " + std::to_string(removed) +
+                                  " earlier messages were removed. "
+                                  "Your system instructions remain active. "
+                                  "Refer to the system prompt for your identity and capabilities.]"});
             logger_->info("Auto-compacted streaming history: {} -> {} messages",
                           total, static_cast<int>(effective_history.size()));
         }
@@ -301,7 +308,7 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
     ContextPruner::Options prune_opts;
     effective_history = ContextPruner::Prune(effective_history, prune_opts);
 
-    // Build context
+    // Build context (system prompt always re-injected first)
     std::vector<Message> context;
     if (!system_prompt.empty()) {
         context.push_back(Message{"system", system_prompt});
@@ -431,10 +438,11 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
             iterations++;
 
         } catch (const ProviderError& pe) {
-            // Record failure and attempt failover
+            // Record failure and attempt failover (with Retry-After if provided)
             if (failover_resolver_ && !last_provider_id_.empty()) {
                 failover_resolver_->RecordFailure(
-                    last_provider_id_, last_profile_id_, pe.Kind());
+                    last_provider_id_, last_profile_id_, pe.Kind(),
+                    pe.RetryAfterSeconds());
 
                 logger_->warn("Streaming provider error ({}), attempting failover: {}",
                               ProviderErrorKindToString(pe.Kind()), pe.what());

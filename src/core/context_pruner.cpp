@@ -14,6 +14,17 @@ std::vector<Message> ContextPruner::Prune(
     const Options& opts) {
   if (history.empty()) return history;
 
+  // Bootstrap protection: find the index of the first user message.
+  // Never prune anything at or before this index (system prompts,
+  // initial context injection, first user turn).
+  int bootstrap_end = -1;
+  for (int i = 0; i < static_cast<int>(history.size()); ++i) {
+    if (history[i].role == "user") {
+      bootstrap_end = i;
+      break;
+    }
+  }
+
   // Find indices of all assistant messages (to determine recency)
   std::vector<int> assistant_indices;
   for (int i = 0; i < static_cast<int>(history.size()); ++i) {
@@ -55,8 +66,9 @@ std::vector<Message> ContextPruner::Prune(
     }
 
     if (!has_tool_result || protect_threshold < 0 ||
-        i >= protect_threshold) {
-      // No tool results to prune, or within protected range
+        i >= protect_threshold || i <= bootstrap_end) {
+      // No tool results to prune, within protected range,
+      // or within bootstrap region (before first user message)
       result.push_back(msg);
       continue;
     }

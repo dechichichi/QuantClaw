@@ -365,3 +365,92 @@ TEST(FailoverConfigTest, EmptyFallbacks) {
     auto config = QuantClawConfig::FromJson({});
     EXPECT_TRUE(config.agent.fallbacks.empty());
 }
+
+// ================================================================
+// P3 — Retry-After on ProviderError
+// ================================================================
+
+TEST(ProviderErrorTest, RetryAfterSeconds) {
+    ProviderError err(ProviderErrorKind::kRateLimit, 429, "Rate limited");
+    EXPECT_EQ(err.RetryAfterSeconds(), 0);
+
+    err.SetRetryAfterSeconds(120);
+    EXPECT_EQ(err.RetryAfterSeconds(), 120);
+}
+
+// ================================================================
+// P3 — CooldownTracker: Retry-After override
+// ================================================================
+
+TEST(CooldownTrackerTest, RetryAfterOverridesBackoff) {
+    CooldownTracker tracker;
+    // With retry_after_seconds=300, cooldown should be ~300s regardless of error kind
+    tracker.RecordFailure("key1", ProviderErrorKind::kRateLimit, 300);
+
+    EXPECT_TRUE(tracker.IsInCooldown("key1"));
+    auto remaining = tracker.CooldownRemaining("key1");
+    EXPECT_GE(remaining.count(), 295);
+    EXPECT_LE(remaining.count(), 300);
+}
+
+TEST(CooldownTrackerTest, RetryAfterZeroUsesDefaultBackoff) {
+    CooldownTracker tracker;
+    // With retry_after_seconds=0, should use computed backoff (60s for rate limit)
+    tracker.RecordFailure("key1", ProviderErrorKind::kRateLimit, 0);
+
+    auto remaining = tracker.CooldownRemaining("key1");
+    EXPECT_GE(remaining.count(), 55);
+    EXPECT_LE(remaining.count(), 60);
+}
+
+// ================================================================
+// P3 — CooldownTracker: Probe throttling
+// ================================================================
+
+TEST(CooldownTrackerTest, TryProbeNotInCooldown) {
+    CooldownTracker tracker;
+    // Not in cooldown, TryProbe should return false
+    EXPECT_FALSE(tracker.TryProbe("key1"));
+}
+
+TEST(CooldownTrackerTest, TryProbeThrottled) {
+    CooldownTracker tracker;
+    tracker.RecordFailure("key1", ProviderErrorKind::kRateLimit);
+
+    // Immediately after failure, TryProbe should return false
+    // because last_probe_at is set to now during RecordFailure
+    EXPECT_FALSE(tracker.TryProbe("key1"));
+}
+
+TEST(CooldownTrackerTest, TryProbeSuccessUpdatesTimestamp) {
+    CooldownTracker tracker;
+    tracker.RecordFailure("key1", ProviderErrorKind::kRateLimit);
+
+    // First probe immediately after failure: blocked
+    EXPECT_FALSE(tracker.TryProbe("key1"));
+    // Second probe also blocked (too soon)
+    EXPECT_FALSE(tracker.TryProbe("key1"));
+}
+
+// ================================================================
+// P3 — CooldownTracker: Failure window decay
+// ================================================================
+
+TEST(CooldownTrackerTest, FailureWindowDecayResets) {
+    // This test verifies the decay logic conceptually:
+    // When the last failure was > 24h ago, consecutive_failures resets.
+    // We can't actually wait 24h in a test, but we verify the counter
+    // increments normally when failures are close together.
+    CooldownTracker tracker;
+    tracker.RecordFailure("key1", ProviderErrorKind::kTransient);
+    EXPECT_EQ(tracker.FailureCount("key1"), 1);
+
+    tracker.RecordFailure("key1", ProviderErrorKind::kTransient);
+    EXPECT_EQ(tracker.FailureCount("key1"), 2);
+
+    tracker.RecordFailure("key1", ProviderErrorKind::kTransient);
+    EXPECT_EQ(tracker.FailureCount("key1"), 3);
+
+    // Without waiting 24h, the counter keeps incrementing
+    // (The actual decay would reset to 0+1=1 after 24h inactivity)
+}

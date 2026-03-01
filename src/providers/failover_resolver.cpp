@@ -69,11 +69,16 @@ void FailoverResolver::RecordSuccess(const std::string& provider_id,
 
 void FailoverResolver::RecordFailure(const std::string& provider_id,
                                       const std::string& profile_id,
-                                      ProviderErrorKind kind) {
-  cooldown_.RecordFailure(cooldown_key(provider_id, profile_id), kind);
-  logger_->warn("Provider {}:{} failed ({}), cooldown set",
+                                      ProviderErrorKind kind,
+                                      int retry_after_seconds) {
+  cooldown_.RecordFailure(cooldown_key(provider_id, profile_id), kind,
+                          retry_after_seconds);
+  logger_->warn("Provider {}:{} failed ({}), cooldown set{}",
                 provider_id, profile_id,
-                ProviderErrorKindToString(kind));
+                ProviderErrorKindToString(kind),
+                retry_after_seconds > 0
+                    ? " (Retry-After: " + std::to_string(retry_after_seconds) + "s)"
+                    : "");
 }
 
 void FailoverResolver::ClearSessionPin(const std::string& session_key) {
@@ -144,7 +149,23 @@ std::optional<ResolvedProvider> FailoverResolver::try_resolve_model(
       }
     }
 
-    // All profiles in cooldown
+    // All profiles in cooldown — try probe throttling on the first profile.
+    // If enough time has passed since the last probe, allow one attempt
+    // so the system can detect recovery without waiting for full cooldown.
+    {
+      auto probe_key = cooldown_key(provider_id, prof_it->second[0].id);
+      if (cooldown_.TryProbe(probe_key)) {
+        logger_->info("Probing cooled-down profile {}:{} (probe throttle)",
+                      provider_id, prof_it->second[0].id);
+        auto provider = registry_->GetProviderWithKey(
+            provider_id, prof_it->second[0].api_key);
+        if (provider) {
+          return ResolvedProvider{provider, provider_id,
+                                  prof_it->second[0].id, ref.model, false};
+        }
+      }
+    }
+
     logger_->debug("All profiles for provider '{}' are in cooldown",
                    provider_id);
     return std::nullopt;
@@ -153,6 +174,15 @@ std::optional<ResolvedProvider> FailoverResolver::try_resolve_model(
   // No profiles configured — use default provider entry
   auto key = cooldown_key(provider_id, "");
   if (cooldown_.IsInCooldown(key)) {
+    // Probe throttling for default entry
+    if (cooldown_.TryProbe(key)) {
+      logger_->info("Probing cooled-down provider '{}' (probe throttle)",
+                    provider_id);
+      auto provider = registry_->GetProvider(provider_id);
+      if (provider) {
+        return ResolvedProvider{provider, provider_id, "", ref.model, false};
+      }
+    }
     return std::nullopt;
   }
 
