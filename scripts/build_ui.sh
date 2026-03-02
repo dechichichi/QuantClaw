@@ -2,13 +2,13 @@
 set -e
 
 UI_DIR="${HOME}/.quantclaw/ui"
-TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+# Resolve the repo root relative to this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-echo "Cloning OpenClaw UI..."
-git clone --depth 1 https://github.com/openclaw/openclaw.git "$TEMP_DIR/openclaw"
+echo "Building QuantClaw UI from local source..."
 
-cd "$TEMP_DIR/openclaw/ui"
+cd "${REPO_ROOT}/ui"
 
 echo "Installing dependencies..."
 if command -v pnpm &> /dev/null; then

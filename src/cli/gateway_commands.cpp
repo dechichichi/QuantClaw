@@ -369,15 +369,15 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
             tool_registry, config, server, logger_, reload_fn);
 
         // Mount dashboard UI if available
-        // Search order: 1) ~/.quantclaw/ui/  2) <exe_dir>/dashboard/dist/  3) <exe_dir>/../dashboard/dist/
+        // Search order: 1) ~/.quantclaw/ui/  2) <exe_dir>/ui/dist/  3) <exe_dir>/../ui/dist/
         std::string ui_dir;
         std::string candidate1 = (base_dir / "ui").string();
         if (std::filesystem::exists(candidate1)) {
             ui_dir = candidate1;
         } else {
             auto exe_dir = std::filesystem::path(platform::executable_path()).parent_path();
-            std::string candidate2 = (exe_dir / "dashboard" / "dist").string();
-            std::string candidate3 = (exe_dir.parent_path() / "dashboard" / "dist").string();
+            std::string candidate2 = (exe_dir / "ui" / "dist").string();
+            std::string candidate3 = (exe_dir.parent_path() / "ui" / "dist").string();
             if (std::filesystem::exists(candidate2)) {
                 ui_dir = candidate2;
             } else if (std::filesystem::exists(candidate3)) {

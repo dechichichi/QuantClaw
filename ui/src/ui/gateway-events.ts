@@ -14,7 +14,7 @@ export const GATEWAY_EVENT_QUEUE_COMPLETED = "queue.completed";
 export const GATEWAY_EVENT_QUEUE_DROPPED = "queue.dropped";
 export const GATEWAY_EVENT_UPDATE_AVAILABLE = "gateway.update_available";
 
-// OpenClaw-compatible event names
+// QuantClaw gateway event names (protocol-compatible with upstream)
 export const GATEWAY_EVENT_AGENT = "agent";
 export const GATEWAY_EVENT_CHAT = "chat";
 

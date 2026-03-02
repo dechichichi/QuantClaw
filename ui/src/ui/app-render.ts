@@ -232,7 +232,7 @@ export function renderApp(state: AppViewState) {
           </button>
           <div class="brand">
             <div class="brand-logo">
-              <img src=${basePath ? `${basePath}/favicon.svg` : "/favicon.svg"} alt="QuantClaw" />
+              <img src=${basePath ? `${basePath}/quantclaw-logo.png` : "/quantclaw-logo.png"} alt="QuantClaw" />
             </div>
             <div class="brand-text">
               <div class="brand-title">QUANTCLAW</div>
