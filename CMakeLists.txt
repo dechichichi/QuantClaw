@@ -48,6 +48,7 @@ set(QUANTCLAW_CORE_SOURCES
     src/core/cron_scheduler.cpp
     src/core/memory_search.cpp
     src/core/context_pruner.cpp
+    src/core/usage_accumulator.cpp
     src/core/message_commands.cpp
     src/core/subagent.cpp
     # Providers
@@ -181,6 +182,7 @@ if(BUILD_TESTS)
         tests/test_skill_loader.cpp
         tests/test_memory_manager.cpp
         tests/test_agent_loop.cpp
+        tests/test_p1_features.cpp
         tests/test_mcp_server.cpp
         tests/test_mcp_integration.cpp
         tests/test_openai_provider.cpp

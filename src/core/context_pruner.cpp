@@ -3,16 +3,52 @@
 
 #include "quantclaw/core/context_pruner.hpp"
 
+#include <algorithm>
 #include <sstream>
 #include <string>
 #include <vector>
 
 namespace quantclaw {
 
+int ContextPruner::EstimateTokens(const Message& msg) {
+  int chars = static_cast<int>(msg.role.size());
+  for (const auto& block : msg.content) {
+    chars += static_cast<int>(block.text.size());
+    chars += static_cast<int>(block.content.size());
+    if (!block.input.is_null())
+      chars += static_cast<int>(block.input.dump().size());
+  }
+  return chars / 4;
+}
+
+int ContextPruner::EstimateTokens(const std::vector<Message>& msgs) {
+  int total = 0;
+  for (const auto& msg : msgs) total += EstimateTokens(msg);
+  return total;
+}
+
 std::vector<Message> ContextPruner::Prune(
     const std::vector<Message>& history,
     const Options& opts) {
   if (history.empty()) return history;
+
+  // Budget-based pruning: dynamically adjust thresholds based on context window
+  Options effective = opts;
+  if (opts.context_window > 0) {
+    int budget = static_cast<int>(opts.context_window * opts.prune_target_ratio)
+                 - opts.max_tokens;
+    int current_tokens = EstimateTokens(history);
+
+    if (current_tokens > budget) {
+      // Over budget: aggressively prune
+      // Scale down max_tool_result_chars and protect_recent
+      double over_ratio = static_cast<double>(current_tokens) / budget;
+      effective.max_tool_result_chars =
+          std::max(200, static_cast<int>(opts.max_tool_result_chars / over_ratio));
+      effective.protect_recent = std::max(1, static_cast<int>(opts.protect_recent / over_ratio));
+      effective.hard_prune_after = std::max(3, static_cast<int>(opts.hard_prune_after / over_ratio));
+    }
+  }
 
   // Bootstrap protection: find the index of the first user message.
   // Never prune anything at or before this index (system prompts,
@@ -37,16 +73,16 @@ std::vector<Message> ContextPruner::Prune(
   // (the most recent N assistant messages)
   int num_assistants = static_cast<int>(assistant_indices.size());
   int protect_threshold = -1;  // Messages at or after this index are protected
-  if (num_assistants > opts.protect_recent && !assistant_indices.empty()) {
+  if (num_assistants > effective.protect_recent && !assistant_indices.empty()) {
     protect_threshold =
-        assistant_indices[num_assistants - opts.protect_recent];
+        assistant_indices[num_assistants - effective.protect_recent];
   }
 
   // Hard prune threshold: messages before this many assistant msgs ago
   int hard_threshold = -1;
-  if (num_assistants > opts.hard_prune_after && !assistant_indices.empty()) {
+  if (num_assistants > effective.hard_prune_after && !assistant_indices.empty()) {
     hard_threshold =
-        assistant_indices[num_assistants - opts.hard_prune_after];
+        assistant_indices[num_assistants - effective.hard_prune_after];
   }
 
   // Build pruned copy
@@ -91,12 +127,12 @@ std::vector<Message> ContextPruner::Prune(
                 block.tool_use_id,
                 "[Tool result omitted — older context]"));
       } else if (static_cast<int>(block.content.size()) >
-                 opts.max_tool_result_chars) {
+                 effective.max_tool_result_chars) {
         // Soft prune: truncate long results
         pruned_msg.content.push_back(
             ContentBlock::MakeToolResult(
                 block.tool_use_id,
-                soft_prune(block.content, opts.soft_prune_lines)));
+                soft_prune(block.content, effective.soft_prune_lines)));
       } else {
         // Below size threshold, keep as-is
         pruned_msg.content.push_back(block);

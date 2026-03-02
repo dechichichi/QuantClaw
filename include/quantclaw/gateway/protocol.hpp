@@ -59,13 +59,34 @@ struct RpcRequest {
     }
 };
 
+// --- RPC Error (structured, OpenClaw-compatible) ---
+
+struct RpcError {
+    std::string code = "INTERNAL_ERROR";
+    std::string message;
+    bool retryable = false;
+    int retry_after_ms = 0;
+
+    nlohmann::json ToJson() const {
+        nlohmann::json j = {
+            {"code", code},
+            {"message", message},
+            {"retryable", retryable}
+        };
+        if (retry_after_ms > 0) {
+            j["retryAfterMs"] = retry_after_ms;
+        }
+        return j;
+    }
+};
+
 // --- RPC Response ---
 
 struct RpcResponse {
     std::string id;
     bool ok = true;
     nlohmann::json payload;
-    std::string error;
+    RpcError error;
 
     nlohmann::json ToJson() const {
         nlohmann::json j = {
@@ -76,17 +97,19 @@ struct RpcResponse {
         if (ok) {
             j["payload"] = payload;
         } else {
-            j["error"] = error;
+            j["error"] = error.ToJson();
         }
         return j;
     }
 
     static RpcResponse success(const std::string& id, const nlohmann::json& payload) {
-        return {id, true, payload, ""};
+        return {id, true, payload, {}};
     }
 
-    static RpcResponse failure(const std::string& id, const std::string& error) {
-        return {id, false, {}, error};
+    static RpcResponse failure(const std::string& id, const std::string& message,
+                               const std::string& code = "INTERNAL_ERROR",
+                               bool retryable = false, int retry_after_ms = 0) {
+        return {id, false, {}, {code, message, retryable, retry_after_ms}};
     }
 };
 
@@ -127,7 +150,7 @@ struct ConnectChallenge {
 
 struct ConnectHelloParams {
     int min_protocol = 1;
-    int max_protocol = 1;
+    int max_protocol = 3;
     std::string client_name;
     std::string client_version;
     std::string role;                    // "operator" | "node"
@@ -138,7 +161,7 @@ struct ConnectHelloParams {
     static ConnectHelloParams FromJson(const nlohmann::json& j) {
         ConnectHelloParams p;
         p.min_protocol = j.value("minProtocol", 1);
-        p.max_protocol = j.value("maxProtocol", 1);
+        p.max_protocol = j.value("maxProtocol", 3);
         p.role = j.value("role", "operator");
         p.scopes = j.value("scopes", std::vector<std::string>{"operator.read", "operator.write"});
 
@@ -168,27 +191,75 @@ struct ConnectHelloParams {
 };
 
 struct HelloOkPayload {
-    int protocol = 1;
+    int protocol = 3;
     std::string policy = "permissive";
     bool authenticated = true;
     int tick_interval_ms = 15000;
     bool openclaw_format = false;
+    std::string server_version = "0.2.0";
+    std::string conn_id;
+
+    // State snapshot (included in hello-ok response, OpenClaw compatible)
+    nlohmann::json snapshot;
 
     nlohmann::json ToJson() const {
+        nlohmann::json server_info = {
+            {"version", server_version}
+        };
+        if (!conn_id.empty()) {
+            server_info["connId"] = conn_id;
+        }
+
+        // Common features advertised to all clients
+        nlohmann::json features = {
+            {"methods", nlohmann::json::array({
+                "connect.hello", "gateway.health", "gateway.status",
+                "config.get", "config.set", "config.reload",
+                "agent.request", "agent.stop",
+                "sessions.list", "sessions.history", "sessions.delete",
+                "sessions.reset", "sessions.patch", "sessions.compact",
+                "channels.list", "channels.status",
+                "chain.execute",
+                "skills.status", "skills.install",
+                "cron.update", "cron.run", "cron.runs",
+                "exec.approval.request", "exec.approvals.get",
+                "models.set",
+                "plugins.list", "plugins.tools", "plugins.call_tool",
+                "plugins.services", "plugins.providers",
+                "plugins.commands", "plugins.gateway",
+                "queue.status", "queue.configure",
+                "queue.cancel", "queue.abort"
+            })},
+            {"events", nlohmann::json::array({
+                "connect.challenge", "agent.text_delta", "agent.tool_use",
+                "agent.tool_result", "agent.message_end", "gateway.tick",
+                "queue.started", "queue.completed", "queue.dropped"
+            })}
+        };
+
         if (openclaw_format) {
-            return {
+            nlohmann::json j = {
                 {"protocol", protocol},
+                {"server", server_info},
+                {"features", features},
                 {"authenticated", authenticated},
                 {"tickIntervalMs", tick_interval_ms},
-                {"capabilities", nlohmann::json::array({"chat", "sessions", "tools"})}
+                {"capabilities", nlohmann::json::array({"chat", "sessions", "tools"})},
+                {"policy", {{"maxPayload", 1048576}, {"tickIntervalMs", tick_interval_ms}}}
             };
+            if (!snapshot.is_null()) j["snapshot"] = snapshot;
+            return j;
         }
-        return {
+        nlohmann::json j = {
             {"protocol", protocol},
+            {"server", server_info},
+            {"features", features},
             {"policy", policy},
             {"authenticated", authenticated},
             {"tickIntervalMs", tick_interval_ms}
         };
+        if (!snapshot.is_null()) j["snapshot"] = snapshot;
+        return j;
     }
 };
 

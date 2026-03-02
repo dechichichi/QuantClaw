@@ -22,6 +22,63 @@ namespace events = quantclaw::gateway::events;
 
 namespace quantclaw {
 
+// Estimate token count for a message list (rough: 4 chars ≈ 1 token)
+static int estimate_tokens(const std::vector<Message>& messages) {
+    int chars = 0;
+    for (const auto& msg : messages) {
+        chars += static_cast<int>(msg.role.size());
+        for (const auto& block : msg.content) {
+            chars += static_cast<int>(block.text.size());
+            chars += static_cast<int>(block.content.size());
+            if (!block.input.is_null())
+                chars += static_cast<int>(block.input.dump().size());
+        }
+    }
+    return chars / 4;
+}
+
+// Truncate a tool result if it exceeds the limit (head + tail with ellipsis)
+static std::string truncate_tool_result(const std::string& result,
+                                         int max_chars, int keep_lines) {
+    if (static_cast<int>(result.size()) <= max_chars) return result;
+
+    // Split into lines
+    std::vector<std::string> lines;
+    std::istringstream stream(result);
+    std::string line;
+    while (std::getline(stream, line)) lines.push_back(line);
+
+    if (static_cast<int>(lines.size()) <= keep_lines * 2) return result;
+
+    std::string truncated;
+    for (int i = 0; i < keep_lines; ++i) {
+        truncated += lines[i] + "\n";
+    }
+    int omitted = static_cast<int>(lines.size()) - keep_lines * 2;
+    truncated += "\n... [" + std::to_string(omitted) + " lines omitted] ...\n\n";
+    for (int i = static_cast<int>(lines.size()) - keep_lines;
+         i < static_cast<int>(lines.size()); ++i) {
+        truncated += lines[i] + "\n";
+    }
+    return truncated;
+}
+
+// Get context window size for a model name
+static int get_context_window(const std::string& model) {
+    // Anthropic models
+    if (model.find("claude") != std::string::npos) return kContextWindow200K;
+    // OpenAI models
+    if (model.find("gpt-4o") != std::string::npos) return kContextWindow128K;
+    if (model.find("gpt-4-turbo") != std::string::npos) return kContextWindow128K;
+    if (model.find("gpt-4") != std::string::npos) return kContextWindow8K;
+    if (model.find("gpt-3.5") != std::string::npos) return kContextWindow16K;
+    // Qwen
+    if (model.find("qwen") != std::string::npos) return kContextWindow128K;
+    // DeepSeek
+    if (model.find("deepseek") != std::string::npos) return kContextWindow128K;
+    return kDefaultContextWindow;
+}
+
 AgentLoop::AgentLoop(std::shared_ptr<MemoryManager> memory_manager,
                      std::shared_ptr<SkillLoader> skill_loader,
                      std::shared_ptr<ToolRegistry> tool_registry,
@@ -34,8 +91,10 @@ AgentLoop::AgentLoop(std::shared_ptr<MemoryManager> memory_manager,
     , llm_provider_(llm_provider)
     , logger_(logger)
     , agent_config_(agent_config) {
-    max_iterations_ = agent_config_.max_iterations;
-    logger_->info("AgentLoop initialized with model: {}", agent_config_.model);
+    // Use dynamic max iterations based on context window
+    max_iterations_ = agent_config_.DynamicMaxIterations();
+    logger_->info("AgentLoop initialized with model: {}, max_iterations: {}",
+                  agent_config_.model, max_iterations_);
 }
 
 std::shared_ptr<LLMProvider> AgentLoop::resolve_provider() {
@@ -133,6 +192,32 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
     // New user message
     context.push_back(Message{"user", message});
 
+    // --- Context window guard: check estimated tokens vs limit ---
+    int ctx_window = agent_config_.context_window > 0
+                         ? agent_config_.context_window
+                         : get_context_window(agent_config_.model);
+    int estimated = estimate_tokens(context);
+    if (estimated + agent_config_.max_tokens > ctx_window - kContextWindowMinTokens) {
+        logger_->warn("Context window guard: estimated {} tokens + {} max_tokens exceeds "
+                      "window {} (min reserve {}). Forcing compaction.",
+                      estimated, agent_config_.max_tokens, ctx_window, kContextWindowMinTokens);
+        // Force aggressive compaction: keep only last few messages
+        int keep = std::min(agent_config_.compact_keep_recent, static_cast<int>(context.size()));
+        if (keep < static_cast<int>(context.size())) {
+            std::vector<Message> compacted;
+            if (!system_prompt.empty()) {
+                compacted.push_back(Message{"system", system_prompt});
+            }
+            compacted.push_back(Message{"system",
+                "[Context compaction forced: context window nearly full. "
+                "Earlier messages removed.]"});
+            for (auto it = context.end() - keep; it != context.end(); ++it) {
+                compacted.push_back(*it);
+            }
+            context = std::move(compacted);
+        }
+    }
+
     // Create LLM request
     ChatCompletionRequest request;
     request.messages = context;
@@ -157,10 +242,18 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
     // Save original model for failover re-resolution
     std::string original_model = agent_config_.model;
     int iterations = 0;
+    int overflow_retries = 0;
 
     while (iterations < max_iterations_ && !stop_requested_) {
         try {
             auto response = provider->ChatCompletion(request);
+
+            // --- Usage tracking ---
+            if (usage_accumulator_ && !session_key_.empty()) {
+                usage_accumulator_->Record(session_key_,
+                    response.usage.prompt_tokens,
+                    response.usage.completion_tokens);
+            }
 
             // Record success for failover tracking
             if (failover_resolver_ && !last_provider_id_.empty()) {
@@ -180,6 +273,12 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
                     tool_calls_json.push_back(tc_json);
                 }
                 auto tool_results = handle_tool_calls(tool_calls_json);
+
+                // --- Tool result truncation fallback ---
+                for (auto& result : tool_results) {
+                    result = truncate_tool_result(result,
+                        kToolResultMaxChars, kToolResultKeepLines);
+                }
 
                 // Assistant message: text + tool_use blocks
                 Message assistant_msg;
@@ -217,6 +316,35 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
             break;
 
         } catch (const ProviderError& pe) {
+            // --- Overflow compaction retry ---
+            if (pe.Kind() == ProviderErrorKind::kContextOverflow &&
+                overflow_retries < kOverflowCompactionMaxRetries) {
+                overflow_retries++;
+                logger_->warn("Context overflow (attempt {}/{}), compacting and retrying",
+                              overflow_retries, kOverflowCompactionMaxRetries);
+                // Aggressively compact: keep only recent messages
+                int keep = std::max(2, static_cast<int>(request.messages.size()) / 2);
+                std::vector<Message> compacted;
+                if (!system_prompt.empty()) {
+                    compacted.push_back(Message{"system", system_prompt});
+                }
+                compacted.push_back(Message{"system",
+                    "[Context overflow recovery: older messages removed.]"});
+                for (auto it = request.messages.end() - keep;
+                     it != request.messages.end(); ++it) {
+                    compacted.push_back(*it);
+                }
+                request.messages = std::move(compacted);
+                continue;
+            }
+
+            // Context overflow with retries exhausted — no point retrying
+            if (pe.Kind() == ProviderErrorKind::kContextOverflow) {
+                logger_->error("Context overflow: all {} compaction retries exhausted",
+                               kOverflowCompactionMaxRetries);
+                throw;
+            }
+
             // Record failure for failover tracking (with Retry-After if provided)
             if (failover_resolver_ && !last_provider_id_.empty()) {
                 failover_resolver_->RecordFailure(
@@ -242,7 +370,7 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
             // No failover available or failover also failed
             logger_->error("Provider error with no failover available: {}", pe.what());
             if (iterations < max_iterations_ - 1) {
-                std::this_thread::sleep_for(std::chrono::seconds(1 << iterations));
+                std::this_thread::sleep_for(std::chrono::seconds(1 << std::min(iterations, 4)));
                 iterations++;
                 continue;
             }
@@ -251,7 +379,7 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
         } catch (const std::exception& e) {
             logger_->error("Error in LLM processing: {}", e.what());
             if (iterations < max_iterations_ - 1) {
-                std::this_thread::sleep_for(std::chrono::seconds(1 << iterations));
+                std::this_thread::sleep_for(std::chrono::seconds(1 << std::min(iterations, 4)));
                 iterations++;
                 continue;
             }
@@ -316,6 +444,29 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
     }
     context.push_back(Message{"user", message});
 
+    // --- Context window guard ---
+    int ctx_window = agent_config_.context_window > 0
+                         ? agent_config_.context_window
+                         : get_context_window(agent_config_.model);
+    int estimated = estimate_tokens(context);
+    if (estimated + agent_config_.max_tokens > ctx_window - kContextWindowMinTokens) {
+        logger_->warn("Streaming context window guard triggered: {} + {} > {} - {}",
+                      estimated, agent_config_.max_tokens, ctx_window, kContextWindowMinTokens);
+        int keep = std::min(agent_config_.compact_keep_recent, static_cast<int>(context.size()));
+        if (keep < static_cast<int>(context.size())) {
+            std::vector<Message> compacted;
+            if (!system_prompt.empty()) {
+                compacted.push_back(Message{"system", system_prompt});
+            }
+            compacted.push_back(Message{"system",
+                "[Context compaction forced: context window nearly full.]"});
+            for (auto it = context.end() - keep; it != context.end(); ++it) {
+                compacted.push_back(*it);
+            }
+            context = std::move(compacted);
+        }
+    }
+
     ChatCompletionRequest request;
     request.messages = context;
     request.model = agent_config_.model;
@@ -338,10 +489,12 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
 
     std::string original_model_stream = agent_config_.model;
     int iterations = 0;
+    int overflow_retries_stream = 0;
 
     while (iterations < max_iterations_ && !stop_requested_) {
         try {
             std::string full_response;
+            TokenUsage stream_usage;
 
             provider->ChatCompletionStream(request, [&](const ChatCompletionResponse& chunk) {
                 if (!chunk.content.empty()) {
@@ -350,6 +503,10 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
                         callback({events::kTextDelta, {{"text", chunk.content}}});
                     }
                 }
+
+                // Accumulate usage from stream chunks
+                stream_usage.prompt_tokens += chunk.usage.prompt_tokens;
+                stream_usage.completion_tokens += chunk.usage.completion_tokens;
 
                 if (!chunk.tool_calls.empty()) {
                     for (const auto& tc : chunk.tool_calls) {
@@ -374,6 +531,9 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
                         // Execute tool
                         try {
                             auto result = tool_registry_->ExecuteTool(tc.name, tc.arguments);
+                            // --- Tool result truncation ---
+                            result = truncate_tool_result(result,
+                                kToolResultMaxChars, kToolResultKeepLines);
                             if (callback) {
                                 callback({events::kToolResult, {
                                     {"tool_use_id", tc.id},
@@ -418,6 +578,13 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
                 }
             });
 
+            // --- Usage tracking ---
+            if (usage_accumulator_ && !session_key_.empty()) {
+                usage_accumulator_->Record(session_key_,
+                    stream_usage.prompt_tokens,
+                    stream_usage.completion_tokens);
+            }
+
             // Record success for failover tracking
             if (failover_resolver_ && !last_provider_id_.empty()) {
                 failover_resolver_->RecordSuccess(
@@ -436,6 +603,36 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
             iterations++;
 
         } catch (const ProviderError& pe) {
+            // --- Overflow compaction retry ---
+            if (pe.Kind() == ProviderErrorKind::kContextOverflow &&
+                overflow_retries_stream < kOverflowCompactionMaxRetries) {
+                overflow_retries_stream++;
+                logger_->warn("Streaming context overflow (attempt {}/{}), compacting",
+                              overflow_retries_stream, kOverflowCompactionMaxRetries);
+                int keep = std::max(2, static_cast<int>(request.messages.size()) / 2);
+                std::vector<Message> compacted;
+                if (!system_prompt.empty()) {
+                    compacted.push_back(Message{"system", system_prompt});
+                }
+                compacted.push_back(Message{"system",
+                    "[Context overflow recovery: older messages removed.]"});
+                for (auto it = request.messages.end() - keep;
+                     it != request.messages.end(); ++it) {
+                    compacted.push_back(*it);
+                }
+                request.messages = std::move(compacted);
+                continue;
+            }
+
+            // Context overflow with retries exhausted — throw immediately
+            if (pe.Kind() == ProviderErrorKind::kContextOverflow) {
+                logger_->error("Streaming context overflow: retries exhausted");
+                if (callback) {
+                    callback({events::kMessageEnd, {{"error", pe.what()}}});
+                }
+                return new_messages;
+            }
+
             // Record failure and attempt failover (with Retry-After if provided)
             if (failover_resolver_ && !last_provider_id_.empty()) {
                 failover_resolver_->RecordFailure(
@@ -488,9 +685,9 @@ void AgentLoop::Stop() {
 
 void AgentLoop::SetConfig(const AgentConfig& config) {
     agent_config_ = config;
-    max_iterations_ = config.max_iterations;
-    logger_->info("AgentLoop config updated: model={}, temp={}, max_tokens={}, thinking={}",
-                  config.model, config.temperature, config.max_tokens, config.thinking);
+    max_iterations_ = config.DynamicMaxIterations();
+    logger_->info("AgentLoop config updated: model={}, temp={}, max_tokens={}, max_iterations={}, thinking={}",
+                  config.model, config.temperature, config.max_tokens, max_iterations_, config.thinking);
 }
 
 std::vector<std::string> AgentLoop::handle_tool_calls(const std::vector<nlohmann::json>& tool_calls) {

@@ -11,6 +11,76 @@
 
 namespace quantclaw {
 
+// --- Session Key Utilities ---
+
+static std::string to_lower(const std::string& s) {
+    std::string result = s;
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return result;
+}
+
+std::optional<ParsedSessionKey> ParseAgentSessionKey(const std::string& key) {
+    if (key.empty()) return std::nullopt;
+
+    // Split by ':'
+    std::vector<std::string> parts;
+    std::string::size_type start = 0;
+    while (start < key.size()) {
+        auto pos = key.find(':', start);
+        if (pos == std::string::npos) {
+            parts.push_back(key.substr(start));
+            break;
+        }
+        parts.push_back(key.substr(start, pos - start));
+        start = pos + 1;
+    }
+
+    // Need at least 3 parts: "agent", agentId, rest
+    if (parts.size() < 3) return std::nullopt;
+    if (parts[0] != "agent") return std::nullopt;
+
+    std::string agent_id = parts[1];
+    if (agent_id.empty()) return std::nullopt;
+
+    // rest = everything after the second colon
+    std::string rest;
+    for (size_t i = 2; i < parts.size(); ++i) {
+        if (i > 2) rest += ':';
+        rest += parts[i];
+    }
+    if (rest.empty()) return std::nullopt;
+
+    return ParsedSessionKey{agent_id, rest};
+}
+
+std::string NormalizeSessionKey(const std::string& key,
+                                 const std::string& default_agent_id) {
+    std::string trimmed = key;
+    // Trim whitespace
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
+        trimmed.erase(trimmed.begin());
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
+        trimmed.pop_back();
+
+    if (trimmed.empty()) {
+        return "agent:" + to_lower(default_agent_id) + ":main";
+    }
+
+    // Already in correct format?
+    auto parsed = ParseAgentSessionKey(trimmed);
+    if (parsed) {
+        return "agent:" + to_lower(parsed->agent_id) + ":" + to_lower(parsed->rest);
+    }
+
+    // Not in agent:x:y format — wrap it
+    return "agent:" + to_lower(default_agent_id) + ":" + to_lower(trimmed);
+}
+
+std::string BuildMainSessionKey(const std::string& agent_id) {
+    return "agent:" + to_lower(agent_id) + ":main";
+}
+
 // --- ContentBlock ---
 
 nlohmann::json ContentBlock::ToJson() const {
@@ -135,10 +205,13 @@ SessionHandle SessionManager::GetOrCreate(const std::string& session_key,
                                              const std::string& channel) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = store_.find(session_key);
+    // Normalize session key to OpenClaw format: agent:<agentId>:<rest>
+    std::string normalized = NormalizeSessionKey(session_key);
+
+    auto it = store_.find(normalized);
     if (it != store_.end()) {
         return {
-            session_key,
+            normalized,
             it->second.session_id,
             transcript_path(it->second.session_id)
         };
@@ -148,19 +221,19 @@ SessionHandle SessionManager::GetOrCreate(const std::string& session_key,
     std::string sid = generate_session_id();
     std::string now = get_timestamp();
     SessionInfo info;
-    info.session_key = session_key;
+    info.session_key = normalized;
     info.session_id = sid;
     info.updated_at = now;
     info.created_at = now;
-    info.display_name = display_name.empty() ? session_key : display_name;
+    info.display_name = display_name.empty() ? normalized : display_name;
     info.channel = channel;
 
-    store_[session_key] = info;
+    store_[normalized] = info;
     SaveStore();
 
-    logger_->info("Created new session: {} -> {}", session_key, sid);
+    logger_->info("Created new session: {} -> {}", normalized, sid);
 
-    return {session_key, sid, transcript_path(sid)};
+    return {normalized, sid, transcript_path(sid)};
 }
 
 void SessionManager::AppendMessage(const std::string& session_key,
@@ -173,13 +246,14 @@ void SessionManager::AppendMessage(const std::string& session_key,
     msg.timestamp = get_timestamp();
     msg.usage = usage;
 
-    AppendMessage(session_key, msg);
+    AppendMessage(NormalizeSessionKey(session_key), msg);
 }
 
 void SessionManager::AppendMessage(const std::string& session_key, const SessionMessage& msg) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = store_.find(session_key);
+    std::string normalized = NormalizeSessionKey(session_key);
+    auto it = store_.find(normalized);
     if (it == store_.end()) {
         logger_->error("Session not found: {}", session_key);
         return;
@@ -205,7 +279,8 @@ std::vector<SessionMessage> SessionManager::GetHistory(const std::string& sessio
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<SessionMessage> messages;
 
-    auto it = store_.find(session_key);
+    std::string normalized = NormalizeSessionKey(session_key);
+    auto it = store_.find(normalized);
     if (it == store_.end()) {
         return messages;
     }
@@ -252,9 +327,10 @@ std::vector<SessionInfo> SessionManager::ListSessions() const {
 void SessionManager::DeleteSession(const std::string& session_key) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = store_.find(session_key);
+    std::string normalized = NormalizeSessionKey(session_key);
+    auto it = store_.find(normalized);
     if (it == store_.end()) {
-        logger_->warn("Cannot delete non-existent session: {}", session_key);
+        logger_->warn("Cannot delete non-existent session: {}", normalized);
         return;
     }
 
@@ -267,13 +343,14 @@ void SessionManager::DeleteSession(const std::string& session_key) {
     store_.erase(it);
     SaveStore();
 
-    logger_->info("Deleted session: {}", session_key);
+    logger_->info("Deleted session: {}", normalized);
 }
 
 void SessionManager::UpdateDisplayName(const std::string& session_key, const std::string& name) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = store_.find(session_key);
+    std::string normalized = NormalizeSessionKey(session_key);
+    auto it = store_.find(normalized);
     if (it == store_.end()) {
         return;
     }
@@ -285,7 +362,8 @@ void SessionManager::UpdateDisplayName(const std::string& session_key, const std
 void SessionManager::ResetSession(const std::string& session_key) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = store_.find(session_key);
+    std::string normalized = NormalizeSessionKey(session_key);
+    auto it = store_.find(normalized);
     if (it == store_.end()) {
         logger_->warn("Cannot reset non-existent session: {}", session_key);
         return;
@@ -306,7 +384,7 @@ void SessionManager::ResetSession(const std::string& session_key) {
     it->second.updated_at = get_timestamp();
     SaveStore();
 
-    logger_->info("Reset session: {} -> {}", session_key, new_sid);
+    logger_->info("Reset session: {} -> {}", normalized, new_sid);
 }
 
 void SessionManager::SaveStore() {

@@ -61,7 +61,7 @@ protected:
 TEST_F(MCPIntegrationTest, ListTools) {
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "list_tools"},
+        {"method", "tools/list"},
         {"id", 1}
     };
 
@@ -80,7 +80,7 @@ TEST_F(MCPIntegrationTest, CallReadFileTool) {
 
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "call_tool"},
+        {"method", "tools/call"},
         {"params", {
             {"name", "read"},
             {"arguments", {{"path", test_file.string()}}}
@@ -100,7 +100,7 @@ TEST_F(MCPIntegrationTest, CallWriteFileTool) {
 
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "call_tool"},
+        {"method", "tools/call"},
         {"params", {
             {"name", "write"},
             {"arguments", {
@@ -124,7 +124,7 @@ TEST_F(MCPIntegrationTest, CallWriteFileTool) {
 TEST_F(MCPIntegrationTest, ToolNotFound) {
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "call_tool"},
+        {"method", "tools/call"},
         {"params", {
             {"name", "nonexistent_tool"},
             {"arguments", nlohmann::json::object()}

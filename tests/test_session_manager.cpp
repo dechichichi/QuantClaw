@@ -36,23 +36,23 @@ protected:
 // --- get_or_create ---
 
 TEST_F(SessionManagerTest, CreateNewSession) {
-    auto handle = session_mgr_->GetOrCreate("agent:default:main", "Main", "cli");
+    auto handle = session_mgr_->GetOrCreate("agent:main:main", "Main", "cli");
 
-    EXPECT_EQ(handle.session_key, "agent:default:main");
+    EXPECT_EQ(handle.session_key, "agent:main:main");
     EXPECT_FALSE(handle.session_id.empty());
     EXPECT_TRUE(std::filesystem::exists(test_dir_ / "sessions.json"));
 }
 
 TEST_F(SessionManagerTest, GetExistingSession) {
-    auto h1 = session_mgr_->GetOrCreate("agent:default:main");
-    auto h2 = session_mgr_->GetOrCreate("agent:default:main");
+    auto h1 = session_mgr_->GetOrCreate("agent:main:main");
+    auto h2 = session_mgr_->GetOrCreate("agent:main:main");
 
     EXPECT_EQ(h1.session_id, h2.session_id);
 }
 
 TEST_F(SessionManagerTest, DifferentKeysCreateDifferentSessions) {
-    auto h1 = session_mgr_->GetOrCreate("agent:default:main");
-    auto h2 = session_mgr_->GetOrCreate("agent:default:dm:user1");
+    auto h1 = session_mgr_->GetOrCreate("agent:main:main");
+    auto h2 = session_mgr_->GetOrCreate("agent:main:dm:user1");
 
     EXPECT_NE(h1.session_id, h2.session_id);
 }
@@ -186,7 +186,7 @@ TEST_F(SessionManagerTest, PersistenceAcrossReloads) {
 
     auto sessions = session_mgr_->ListSessions();
     ASSERT_EQ(sessions.size(), 1u);
-    EXPECT_EQ(sessions[0].session_key, "test:persist");
+    EXPECT_EQ(sessions[0].session_key, "agent:main:test:persist");
     EXPECT_EQ(sessions[0].display_name, "Persistent");
 
     auto history = session_mgr_->GetHistory("test:persist");
@@ -339,4 +339,72 @@ TEST(SessionMessageTest, JsonlRoundtrip) {
     ASSERT_TRUE(parsed.usage.has_value());
     EXPECT_EQ(parsed.usage->input_tokens, 10);
     EXPECT_EQ(parsed.usage->output_tokens, 5);
+}
+
+// --- Session key normalization (OpenClaw format) ---
+
+TEST(SessionKeyTest, ParseValidKey) {
+    auto parsed = quantclaw::ParseAgentSessionKey("agent:main:main");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->agent_id, "main");
+    EXPECT_EQ(parsed->rest, "main");
+}
+
+TEST(SessionKeyTest, ParseKeyWithMultipleColons) {
+    auto parsed = quantclaw::ParseAgentSessionKey("agent:main:dm:user1:extra");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->agent_id, "main");
+    EXPECT_EQ(parsed->rest, "dm:user1:extra");
+}
+
+TEST(SessionKeyTest, ParseInvalidKeyNoAgent) {
+    EXPECT_FALSE(quantclaw::ParseAgentSessionKey("test:session").has_value());
+}
+
+TEST(SessionKeyTest, ParseInvalidKeyTooFewParts) {
+    EXPECT_FALSE(quantclaw::ParseAgentSessionKey("agent:main").has_value());
+}
+
+TEST(SessionKeyTest, ParseEmptyKey) {
+    EXPECT_FALSE(quantclaw::ParseAgentSessionKey("").has_value());
+}
+
+TEST(SessionKeyTest, NormalizeAlreadyValid) {
+    EXPECT_EQ(quantclaw::NormalizeSessionKey("agent:main:main"), "agent:main:main");
+}
+
+TEST(SessionKeyTest, NormalizePlainKey) {
+    EXPECT_EQ(quantclaw::NormalizeSessionKey("my-session"), "agent:main:my-session");
+}
+
+TEST(SessionKeyTest, NormalizeLowercases) {
+    EXPECT_EQ(quantclaw::NormalizeSessionKey("agent:Main:MyChat"), "agent:main:mychat");
+}
+
+TEST(SessionKeyTest, NormalizeEmptyKey) {
+    EXPECT_EQ(quantclaw::NormalizeSessionKey(""), "agent:main:main");
+}
+
+TEST(SessionKeyTest, NormalizeWithWhitespace) {
+    EXPECT_EQ(quantclaw::NormalizeSessionKey("  agent:main:test  "), "agent:main:test");
+}
+
+TEST(SessionKeyTest, BuildMainSessionKey) {
+    EXPECT_EQ(quantclaw::BuildMainSessionKey(), "agent:main:main");
+    EXPECT_EQ(quantclaw::BuildMainSessionKey("alpha"), "agent:alpha:main");
+}
+
+TEST_F(SessionManagerTest, PlainKeyNormalizedOnCreate) {
+    auto handle = session_mgr_->GetOrCreate("my-chat");
+    EXPECT_EQ(handle.session_key, "agent:main:my-chat");
+
+    // Same session retrieved with normalized key
+    auto h2 = session_mgr_->GetOrCreate("my-chat");
+    EXPECT_EQ(handle.session_id, h2.session_id);
+}
+
+TEST_F(SessionManagerTest, CaseInsensitiveKeys) {
+    auto h1 = session_mgr_->GetOrCreate("agent:Main:MyChat");
+    auto h2 = session_mgr_->GetOrCreate("agent:main:mychat");
+    EXPECT_EQ(h1.session_id, h2.session_id);
 }

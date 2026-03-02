@@ -95,6 +95,7 @@ public:
     int GetPort() const { return port_; }
     size_t GetConnectionCount() const;
     int64_t GetUptimeSeconds() const;
+    nlohmann::json BuildSnapshot() const;
 
     // Configure authentication
     void SetAuth(const std::string& mode, const std::string& token);

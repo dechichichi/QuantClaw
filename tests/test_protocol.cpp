@@ -81,17 +81,40 @@ TEST(ProtocolTest, RpcResponseSuccess) {
 }
 
 TEST(ProtocolTest, RpcResponseFailure) {
-    auto resp = RpcResponse::failure("99", "Not found");
+    auto resp = RpcResponse::failure("99", "Not found", "NOT_FOUND");
 
     EXPECT_EQ(resp.id, "99");
     EXPECT_FALSE(resp.ok);
-    EXPECT_EQ(resp.error, "Not found");
+    EXPECT_EQ(resp.error.message, "Not found");
+    EXPECT_EQ(resp.error.code, "NOT_FOUND");
+    EXPECT_FALSE(resp.error.retryable);
 
     auto j = resp.ToJson();
     EXPECT_EQ(j["type"], "res");
     EXPECT_FALSE(j["ok"]);
-    EXPECT_EQ(j["error"], "Not found");
+    EXPECT_TRUE(j["error"].is_object());
+    EXPECT_EQ(j["error"]["code"], "NOT_FOUND");
+    EXPECT_EQ(j["error"]["message"], "Not found");
+    EXPECT_FALSE(j["error"]["retryable"]);
     EXPECT_FALSE(j.contains("payload"));
+}
+
+TEST(ProtocolTest, RpcResponseFailureWithRetry) {
+    auto resp = RpcResponse::failure("42", "Rate limited", "RATE_LIMITED", true, 5000);
+
+    EXPECT_EQ(resp.error.code, "RATE_LIMITED");
+    EXPECT_TRUE(resp.error.retryable);
+    EXPECT_EQ(resp.error.retry_after_ms, 5000);
+
+    auto j = resp.ToJson();
+    EXPECT_TRUE(j["error"]["retryable"]);
+    EXPECT_EQ(j["error"]["retryAfterMs"], 5000);
+}
+
+TEST(ProtocolTest, RpcResponseFailureDefaultCode) {
+    auto resp = RpcResponse::failure("1", "Something broke");
+    EXPECT_EQ(resp.error.code, "INTERNAL_ERROR");
+    EXPECT_EQ(resp.error.message, "Something broke");
 }
 
 // --- RpcEvent ---
@@ -172,7 +195,7 @@ TEST(ProtocolTest, ConnectHelloParamsFromJson) {
 TEST(ProtocolTest, ConnectHelloParamsDefaults) {
     auto params = ConnectHelloParams::FromJson(nlohmann::json::object());
     EXPECT_EQ(params.min_protocol, 1);
-    EXPECT_EQ(params.max_protocol, 1);
+    EXPECT_EQ(params.max_protocol, 3);
     EXPECT_EQ(params.role, "operator");
     EXPECT_EQ(params.scopes.size(), 2u);
 }
@@ -181,16 +204,67 @@ TEST(ProtocolTest, ConnectHelloParamsDefaults) {
 
 TEST(ProtocolTest, HelloOkPayloadToJson) {
     HelloOkPayload payload;
-    payload.protocol = 1;
     payload.policy = "permissive";
     payload.authenticated = true;
     payload.tick_interval_ms = 15000;
+    payload.conn_id = "conn-abc";
 
     auto j = payload.ToJson();
-    EXPECT_EQ(j["protocol"], 1);
+    EXPECT_EQ(j["protocol"], 3);
     EXPECT_EQ(j["policy"], "permissive");
     EXPECT_TRUE(j["authenticated"]);
     EXPECT_EQ(j["tickIntervalMs"], 15000);
+
+    // Server info
+    EXPECT_TRUE(j.contains("server"));
+    EXPECT_EQ(j["server"]["version"], "0.2.0");
+    EXPECT_EQ(j["server"]["connId"], "conn-abc");
+
+    // Features
+    EXPECT_TRUE(j.contains("features"));
+    EXPECT_TRUE(j["features"]["methods"].is_array());
+    EXPECT_TRUE(j["features"]["events"].is_array());
+    EXPECT_GT(j["features"]["methods"].size(), 0u);
+    EXPECT_GT(j["features"]["events"].size(), 0u);
+}
+
+TEST(ProtocolTest, HelloOkPayloadOpenClawFormat) {
+    HelloOkPayload payload;
+    payload.openclaw_format = true;
+    payload.conn_id = "oc-123";
+
+    auto j = payload.ToJson();
+    EXPECT_EQ(j["protocol"], 3);
+    EXPECT_TRUE(j.contains("server"));
+    EXPECT_TRUE(j.contains("features"));
+    EXPECT_TRUE(j.contains("capabilities"));
+    EXPECT_TRUE(j.contains("policy"));
+    EXPECT_TRUE(j["policy"].is_object());
+    EXPECT_EQ(j["policy"]["maxPayload"], 1048576);
+}
+
+TEST(ProtocolTest, HelloOkPayloadWithSnapshot) {
+    HelloOkPayload payload;
+    payload.conn_id = "conn-snap";
+    payload.snapshot = {
+        {"presence", nlohmann::json::array()},
+        {"uptimeMs", 5000},
+        {"authMode", "none"}
+    };
+
+    auto j = payload.ToJson();
+    EXPECT_TRUE(j.contains("snapshot"));
+    EXPECT_EQ(j["snapshot"]["uptimeMs"], 5000);
+    EXPECT_EQ(j["snapshot"]["authMode"], "none");
+}
+
+TEST(ProtocolTest, HelloOkPayloadNoSnapshotWhenNull) {
+    HelloOkPayload payload;
+    payload.conn_id = "conn-no-snap";
+    // snapshot left as default (null)
+
+    auto j = payload.ToJson();
+    EXPECT_FALSE(j.contains("snapshot"));
 }
 
 // --- parse_frame_type ---

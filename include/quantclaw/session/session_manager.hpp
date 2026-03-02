@@ -16,6 +16,27 @@
 
 namespace quantclaw {
 
+// --- Session Key Utilities (OpenClaw compatible) ---
+
+struct ParsedSessionKey {
+    std::string agent_id;
+    std::string rest;
+};
+
+// Parse a session key into agent_id and rest.
+// Returns nullopt if the key doesn't match the "agent:<agentId>:<rest>" format.
+std::optional<ParsedSessionKey> ParseAgentSessionKey(const std::string& key);
+
+// Normalize a session key to OpenClaw format.
+// - Plain keys like "my-session" → "agent:main:my-session"
+// - Keys missing the "agent:" prefix get it added
+// - Agent ID and rest are lowercased
+std::string NormalizeSessionKey(const std::string& key,
+                                 const std::string& default_agent_id = "main");
+
+// Build the default main session key: "agent:<agentId>:main"
+std::string BuildMainSessionKey(const std::string& agent_id = "main");
+
 // --- Usage Info ---
 
 struct UsageInfo {

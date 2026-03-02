@@ -424,7 +424,7 @@ bool OnboardCommands::CreateConfigFile(const std::string& model, int port,
                 {"compactMaxMessages", 100},
                 {"maxIterations", 15},
                 {"temperature", 0.7},
-                {"maxTokens", 4096}
+                {"maxTokens", 8192}
             }},
             {"queue", {
                 {"maxConcurrent", 4},

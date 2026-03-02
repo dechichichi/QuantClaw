@@ -135,10 +135,10 @@ TEST_F(ConfigTest, ParseOpenClawFormat) {
 TEST_F(ConfigTest, EmptyConfigUsesDefaults) {
     auto config = quantclaw::QuantClawConfig::FromJson({});
 
-    EXPECT_EQ(config.agent.model, "qwen-max");
-    EXPECT_EQ(config.agent.max_iterations, 15);
+    EXPECT_EQ(config.agent.model, "anthropic/claude-sonnet-4-6");
+    EXPECT_EQ(config.agent.max_iterations, 32);
     EXPECT_DOUBLE_EQ(config.agent.temperature, 0.7);
-    EXPECT_EQ(config.agent.max_tokens, 4096);
+    EXPECT_EQ(config.agent.max_tokens, 8192);
 
     EXPECT_EQ(config.gateway.port, 18800);
     EXPECT_EQ(config.gateway.bind, "loopback");
@@ -154,7 +154,7 @@ TEST_F(ConfigTest, PartialAgentConfig) {
     auto config = quantclaw::QuantClawConfig::FromJson(json_config);
 
     EXPECT_EQ(config.agent.model, "gpt-3.5-turbo");
-    EXPECT_EQ(config.agent.max_iterations, 15);
+    EXPECT_EQ(config.agent.max_iterations, 32);
     EXPECT_DOUBLE_EQ(config.agent.temperature, 0.7);
 }
 
@@ -520,4 +520,185 @@ TEST_F(ConfigTest, SetValue_OnNonexistentFile) {
     EXPECT_TRUE(std::filesystem::exists(config_path));
     auto config = quantclaw::QuantClawConfig::LoadFromFile(config_path);
     EXPECT_EQ(config.agent.model, "gpt-4o");
+}
+
+// --- Environment variable substitution ---
+
+TEST_F(ConfigTest, EnvVarSubstitutionInApiKey) {
+    setenv("QC_TEST_API_KEY", "sk-from-env-42", 1);
+
+    nlohmann::json json_config = {
+        {"providers", {
+            {"openai", {
+                {"apiKey", "${QC_TEST_API_KEY}"},
+                {"baseUrl", "https://api.openai.com/v1"}
+            }}
+        }}
+    };
+
+    auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+    EXPECT_EQ(config.providers.at("openai").api_key, "sk-from-env-42");
+
+    unsetenv("QC_TEST_API_KEY");
+}
+
+TEST_F(ConfigTest, EnvVarSubstitutionMissing) {
+    unsetenv("QC_TEST_NONEXISTENT_VAR");
+
+    nlohmann::json json_config = {
+        {"providers", {
+            {"openai", {
+                {"apiKey", "${QC_TEST_NONEXISTENT_VAR}"}
+            }}
+        }}
+    };
+
+    auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+    // Missing env var → empty string
+    EXPECT_EQ(config.providers.at("openai").api_key, "");
+}
+
+TEST_F(ConfigTest, EnvVarSubstitutionMultiple) {
+    setenv("QC_TEST_HOST", "api.example.com", 1);
+    setenv("QC_TEST_VERSION", "v2", 1);
+
+    nlohmann::json json_config = {
+        {"providers", {
+            {"openai", {
+                {"baseUrl", "https://${QC_TEST_HOST}/${QC_TEST_VERSION}"}
+            }}
+        }}
+    };
+
+    auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+    EXPECT_EQ(config.providers.at("openai").base_url, "https://api.example.com/v2");
+
+    unsetenv("QC_TEST_HOST");
+    unsetenv("QC_TEST_VERSION");
+}
+
+TEST_F(ConfigTest, EnvVarSubstitutionInNestedArrays) {
+    setenv("QC_TEST_SCOPE", "admin.read", 1);
+
+    nlohmann::json json_config = {
+        {"tools", {
+            {"allow", {"group:fs", "${QC_TEST_SCOPE}"}}
+        }}
+    };
+
+    auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+    ASSERT_EQ(config.tools_permission.allow.size(), 2u);
+    EXPECT_EQ(config.tools_permission.allow[1], "admin.read");
+
+    unsetenv("QC_TEST_SCOPE");
+}
+
+// --- JSON5 support (comments + trailing commas) ---
+
+TEST_F(ConfigTest, Json5LineComments) {
+    auto config_path = (test_dir_ / "json5_comments.json").string();
+    std::ofstream f(config_path);
+    f << R"({
+  // This is a line comment
+  "agent": {
+    "model": "gpt-4o", // inline comment
+    "maxIterations": 10
+  }
+})";
+    f.close();
+
+    auto config = quantclaw::QuantClawConfig::LoadFromFile(config_path);
+    EXPECT_EQ(config.agent.model, "gpt-4o");
+    EXPECT_EQ(config.agent.max_iterations, 10);
+}
+
+TEST_F(ConfigTest, Json5BlockComments) {
+    auto config_path = (test_dir_ / "json5_block.json").string();
+    std::ofstream f(config_path);
+    f << R"({
+  /* block comment */
+  "agent": {
+    "model": "claude-3", /* another block */
+    "maxIterations": 5
+  }
+})";
+    f.close();
+
+    auto config = quantclaw::QuantClawConfig::LoadFromFile(config_path);
+    EXPECT_EQ(config.agent.model, "claude-3");
+}
+
+TEST_F(ConfigTest, Json5TrailingCommas) {
+    auto config_path = (test_dir_ / "json5_trailing.json").string();
+    std::ofstream f(config_path);
+    f << R"({
+  "agent": {
+    "model": "gpt-4o",
+    "maxIterations": 10,
+  },
+  "providers": {
+    "openai": {
+      "apiKey": "sk-test",
+    },
+  },
+})";
+    f.close();
+
+    auto config = quantclaw::QuantClawConfig::LoadFromFile(config_path);
+    EXPECT_EQ(config.agent.model, "gpt-4o");
+    EXPECT_EQ(config.providers.at("openai").api_key, "sk-test");
+}
+
+TEST_F(ConfigTest, Json5CommentsAndTrailingCommasCombined) {
+    auto config_path = (test_dir_ / "json5_combined.json").string();
+    std::ofstream f(config_path);
+    f << R"({
+  // Main config
+  "agent": {
+    "model": "gpt-4o", // model selection
+    "maxIterations": 10,
+    /* "temperature": 0.5, -- disabled for now */
+  },
+  "providers": {
+    "openai": {
+      "apiKey": "sk-test", // TODO: use env var
+      "baseUrl": "https://api.openai.com/v1",
+    },
+  },
+})";
+    f.close();
+
+    auto config = quantclaw::QuantClawConfig::LoadFromFile(config_path);
+    EXPECT_EQ(config.agent.model, "gpt-4o");
+    EXPECT_EQ(config.agent.max_iterations, 10);
+    EXPECT_EQ(config.providers.at("openai").api_key, "sk-test");
+}
+
+TEST_F(ConfigTest, Json5UrlsInStringsNotStripped) {
+    auto config_path = (test_dir_ / "json5_urls.json").string();
+    std::ofstream f(config_path);
+    f << R"({
+  "providers": {
+    "openai": {
+      "baseUrl": "https://api.openai.com/v1"
+    }
+  }
+})";
+    f.close();
+
+    auto config = quantclaw::QuantClawConfig::LoadFromFile(config_path);
+    EXPECT_EQ(config.providers.at("openai").base_url, "https://api.openai.com/v1");
+}
+
+TEST_F(ConfigTest, EnvVarNoSubstitutionWithoutDollarBrace) {
+    nlohmann::json json_config = {
+        {"providers", {
+            {"openai", {
+                {"apiKey", "literal-string-no-vars"}
+            }}
+        }}
+    };
+
+    auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+    EXPECT_EQ(config.providers.at("openai").api_key, "literal-string-no-vars");
 }

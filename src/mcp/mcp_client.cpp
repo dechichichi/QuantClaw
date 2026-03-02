@@ -16,25 +16,30 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
 }
 
 MCPClient::MCPClient(const std::string& server_url, std::shared_ptr<spdlog::logger> logger)
-    : server_url_(server_url), logger_(logger) {
+    : server_url_(server_url), logger_(logger), request_id_(0) {
     logger_->info("MCPClient initialized with server: {}", server_url_);
 }
 
 std::vector<Tool> MCPClient::ListTools() {
     nlohmann::json request;
     request["jsonrpc"] = "2.0";
-    request["method"] = "list_tools";
-    request["id"] = 1;
-    
+    request["method"] = "tools/list";
+    request["id"] = ++request_id_;
+
     nlohmann::json response = make_request(request);
-    
+
     std::vector<Tool> tools;
     if (response.contains("result") && response["result"].contains("tools")) {
         for (const auto& tool_json : response["result"]["tools"]) {
             Tool tool;
             tool.name = tool_json.value("name", "");
             tool.description = tool_json.value("description", "");
-            tool.parameters = tool_json.value("parameters", nlohmann::json::object());
+            // Accept both MCP-spec "inputSchema" and legacy "parameters"
+            if (tool_json.contains("inputSchema")) {
+                tool.parameters = tool_json["inputSchema"];
+            } else {
+                tool.parameters = tool_json.value("parameters", nlohmann::json::object());
+            }
             tools.push_back(tool);
         }
     }
@@ -45,12 +50,12 @@ std::vector<Tool> MCPClient::ListTools() {
 MCPResponse MCPClient::CallTool(const std::string& tool_name, const nlohmann::json& arguments) {
     nlohmann::json request;
     request["jsonrpc"] = "2.0";
-    request["method"] = "call_tool";
+    request["method"] = "tools/call";
     request["params"] = {
         {"name", tool_name},
         {"arguments", arguments}
     };
-    request["id"] = 2;
+    request["id"] = ++request_id_;
     
     try {
         nlohmann::json response = make_request(request);

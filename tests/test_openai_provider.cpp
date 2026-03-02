@@ -110,7 +110,7 @@ TEST_F(OpenAIProviderTest, StreamingCompletion) {
 TEST_F(OpenAIProviderTest, RequestDefaults) {
     quantclaw::ChatCompletionRequest req;
     EXPECT_DOUBLE_EQ(req.temperature, 0.7);
-    EXPECT_EQ(req.max_tokens, 4096);
+    EXPECT_EQ(req.max_tokens, 8192);
     EXPECT_TRUE(req.tool_choice_auto);
     EXPECT_FALSE(req.stream);
     EXPECT_TRUE(req.tools.empty());

@@ -529,21 +529,67 @@ The JSON specification ([RFC 8259 §7](https://www.rfc-editor.org/rfc/rfc8259#se
 
 The `\n` byte (`0x0A`) therefore **only** appears as a frame delimiter between messages, never inside a JSON payload. This is the same NDJSON framing used by Redis, Docker Events, and OpenAI streaming.
 
-## Compatibility
+## OpenClaw Compatibility Status
 
-- **Workspace Files**: Compatible with OpenClaw (`SOUL.md`, `USER.md`, `MEMORY.md`)
-- **Skills**: Uses OpenClaw SKILL.md format (supports both `metadata.openclaw` and flat formats)
-- **Plugins**: Full OpenClaw plugin compatibility — tools, hooks, services, providers, commands
-- **Configuration**: JSON format compatible with OpenClaw ecosystem
-- **Protocol**: WebSocket RPC with `connect` + `chat.send` — interoperable with OpenClaw clients
+QuantClaw aims for full compatibility with [OpenClaw](https://github.com/openclaw/openclaw) (v2026.2). The table below summarizes current alignment:
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| Workspace files | **Full** | `SOUL.md`, `USER.md`, `MEMORY.md`, `SKILL.md` |
+| Skills format | **Full** | Both `metadata.openclaw` and flat formats |
+| Plugin hooks (24 types) | **Full** | All hook names and modes (void/modifying/sync) aligned |
+| Plugin Sidecar IPC | **Full** | Tools, hooks, services, providers, commands, HTTP routes, gateway methods |
+| JSONL session format | **Partial** | Basic read/write compatible; missing branching (parentId), 8 entry types, write lock |
+| Config format | **Partial** | JSON only (no JSON5 comments/trailing commas), no `$include`, no `${VAR}` env substitution |
+| CLI commands | **Partial** | Core commands present; ~28 top-level commands from OpenClaw not yet implemented |
+| Gateway RPC protocol | **Partial** | ~30 methods implemented; ~85+ OpenClaw methods pending |
+| Provider system | **Partial** | OpenAI + Anthropic + 5 OpenAI-compatible; missing OAuth, GitHub Copilot, Qwen, etc. |
+| Agent loop | **Partial** | Core loop works; missing lane-based queue, auth rotation, overflow compaction |
+| Memory search | **Partial** | BM25 keyword search only; missing hybrid vector search (embeddings, SQLite, MMR) |
+| Context management | **Partial** | Compaction + pruning work; missing multi-stage summary, budget-based pruning |
+| Channel system | **Partial** | External subprocess adapters; no built-in channels, no 7-tier routing |
+| Security / Sandbox | **Partial** | RBAC + rate limiter + sandbox; missing Docker sandbox, security audit framework |
+| MCP | **Partial** | Basic implementation; method names and transport being aligned to spec |
+| Web API | **Partial** | 16 REST routes; missing OpenResponses API, webhook endpoints |
+
+### Key Differences from OpenClaw
+
+| Aspect | OpenClaw | QuantClaw |
+|--------|----------|-----------|
+| Default gateway port | `18789` | `18800` |
+| Default HTTP port | Same as gateway | `18801` (separate) |
+| Config format | JSON5 with `$include` and `${VAR}` | Strict JSON |
+| Default model | `anthropic/claude-sonnet-4-6` | `qwen-max` |
+| Default maxTokens | `8192` | `4096` |
+| Auth profiles | Multi-profile with OAuth + rotation | Single key per provider |
+| Memory search | Hybrid (vector 0.7 + BM25 0.3) | BM25 only |
+| Plugin execution | In-process (same Node.js) | Out-of-process (sidecar via TCP) |
+| Channel adapters | 8 built-in + extensions | External subprocess scripts |
+
+### QuantClaw-Only Features
+
+| Feature | Description |
+|---------|-------------|
+| `chain` meta-tool | Declarative multi-step tool pipeline with `{{prev.result}}` templates |
+| `read`/`write`/`edit` tools | Dedicated file operation tools with sandbox validation |
+| Cross-platform TCP IPC | Unified Linux/Windows sidecar communication (no Unix sockets) |
+| C++ resource limits | `setrlimit` sandbox (CPU/memory/fsize/nproc) |
+| `viewer` RBAC role | Dedicated read-only role |
+
+For the full gap analysis, see [.claude/gap-analysis.md](.claude/gap-analysis.md).
 
 ## Roadmap
 
-Currently implemented: WebSocket/HTTP gateway, multi-provider LLM with failover, session persistence, plugin ecosystem, channel adapters, MCP support, onboarding wizard, and 711 passing tests (654 C++ + 57 sidecar).
+Currently implemented: WebSocket/HTTP gateway, multi-provider LLM with failover, session persistence, plugin ecosystem, channel adapters, MCP support, onboarding wizard, and 769 passing tests (712 C++ + 57 sidecar).
 
 Not yet implemented:
 - TUI interactive mode
 - Multiple agent profiles
+- JSON5 config with `$include` and `${VAR}` support
+- Hybrid memory search (vector + BM25)
+- Built-in channel adapters (Telegram, Discord, Slack)
+- Docker sandbox isolation
+- OAuth credential flows
 
 ## Troubleshooting
 

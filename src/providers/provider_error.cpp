@@ -12,8 +12,9 @@ std::string ProviderErrorKindToString(ProviderErrorKind kind) {
     case ProviderErrorKind::kBillingError: return "billing_error";
     case ProviderErrorKind::kTransient:    return "transient";
     case ProviderErrorKind::kModelNotFound: return "model_not_found";
-    case ProviderErrorKind::kTimeout:      return "timeout";
-    case ProviderErrorKind::kUnknown:      return "unknown";
+    case ProviderErrorKind::kTimeout:         return "timeout";
+    case ProviderErrorKind::kContextOverflow: return "context_overflow";
+    case ProviderErrorKind::kUnknown:         return "unknown";
   }
   return "unknown";
 }
@@ -55,12 +56,20 @@ ProviderErrorKind ClassifyHttpError(int http_status,
       break;
   }
 
-  // Check response body for billing-related messages
+  // Check response body for specific error categories
   if (!response_body.empty()) {
     if (response_body.find("insufficient_credits") != std::string::npos ||
         response_body.find("insufficient_quota") != std::string::npos ||
         response_body.find("billing") != std::string::npos) {
       return ProviderErrorKind::kBillingError;
+    }
+    // Context window / token limit exceeded
+    if (response_body.find("context_length") != std::string::npos ||
+        response_body.find("context_window") != std::string::npos ||
+        response_body.find("token limit") != std::string::npos ||
+        response_body.find("maximum context length") != std::string::npos ||
+        response_body.find("max_tokens") != std::string::npos) {
+      return ProviderErrorKind::kContextOverflow;
     }
   }
 

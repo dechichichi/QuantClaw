@@ -26,7 +26,8 @@ class MCPClient {
 private:
     std::string server_url_;
     std::shared_ptr<spdlog::logger> logger_;
-    
+    int request_id_ = 0;
+
 public:
     MCPClient(const std::string& server_url, std::shared_ptr<spdlog::logger> logger);
     

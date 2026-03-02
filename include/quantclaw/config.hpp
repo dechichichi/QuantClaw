@@ -14,10 +14,11 @@ namespace quantclaw {
 // --- Agent / LLM ---
 
 struct AgentConfig {
-    std::string model = "qwen-max";
+    std::string model = "anthropic/claude-sonnet-4-6";
     int max_iterations = kDefaultMaxIterations;
     double temperature = kDefaultTemperature;
     int max_tokens = kDefaultMaxTokens;
+    int context_window = kDefaultContextWindow;  // Model context window (tokens)
     std::string thinking = "off";  // "off" | "low" | "medium" | "high"
     std::vector<std::string> fallbacks;  // Model fallback chain
 
@@ -28,6 +29,11 @@ struct AgentConfig {
     int compact_max_tokens = kDefaultCompactMaxTokens;      // Compact when tokens exceed this
 
     static AgentConfig FromJson(const nlohmann::json& json);
+
+    // Compute dynamic max iterations based on context window.
+    // OpenClaw: scales linearly from kMinMaxIterations (32) at 32K
+    // to kMaxMaxIterations (160) at 200K.
+    int DynamicMaxIterations() const;
 };
 
 struct ProviderConfig {
@@ -214,6 +220,12 @@ struct QuantClawConfig {
 
     static QuantClawConfig FromJson(const nlohmann::json& json);
     static QuantClawConfig LoadFromFile(const std::string& filepath);
+
+private:
+    // Internal: parse after ${VAR} expansion has already been applied
+    static QuantClawConfig FromJsonExpanded(const nlohmann::json& json);
+
+public:
 
     // Write a dot-path value (e.g. "agent.model") into the config file.
     // Creates a backup (.bak) before writing.

@@ -43,7 +43,7 @@ nlohmann::json MCPTool::GetSchema() const {
         }
     }
     
-    schema["parameters"] = params;
+    schema["inputSchema"] = params;
     return schema;
 }
 
@@ -69,9 +69,9 @@ nlohmann::json MCPServer::HandleRequest(const nlohmann::json& request) {
         
         if (method == "initialize") {
             return handle_initialize(request, id);
-        } else if (method == "list_tools") {
+        } else if (method == "tools/list" || method == "list_tools") {
             return handle_list_tools(request, id);
-        } else if (method == "call_tool") {
+        } else if (method == "tools/call" || method == "call_tool") {
             return handle_call_tool(request, id);
         } else {
             logger_->warn("Unknown MCP method: {}", method);
@@ -85,7 +85,7 @@ nlohmann::json MCPServer::HandleRequest(const nlohmann::json& request) {
 
 nlohmann::json MCPServer::handle_initialize(const nlohmann::json& /*request*/, const nlohmann::json& id) {
     nlohmann::json result;
-    result["protocol_version"] = "2024-11-15";
+    result["protocolVersion"] = "2024-11-05";
     result["capabilities"] = {
         {"tools", {}}
     };

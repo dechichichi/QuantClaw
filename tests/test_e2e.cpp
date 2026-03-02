@@ -296,7 +296,7 @@ TEST_F(E2ETest, E2E_SessionHistory) {
     auto client = make_client();
     ASSERT_TRUE(client->Connect(5000));
 
-    std::string session_key = "agent:default:main";
+    std::string session_key = "agent:main:main";
     client->Call("agent.request", {
         {"message", "Tell me something"},
         {"sessionKey", session_key}

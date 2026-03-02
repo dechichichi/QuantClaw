@@ -112,7 +112,10 @@ void GatewayServer::SendResponseTo(const std::string& connection_id,
     if (ok) {
         resp.payload = payload_or_error;
     } else {
-        resp.error = payload_or_error.value("error", "unknown error");
+        resp.error.message = payload_or_error.value("error", "unknown error");
+        resp.error.code = payload_or_error.value("code", "INTERNAL_ERROR");
+        resp.error.retryable = payload_or_error.value("retryable", false);
+        resp.error.retry_after_ms = payload_or_error.value("retryAfterMs", 0);
     }
 
     std::lock_guard<std::mutex> lock(connections_mutex_);
@@ -137,6 +140,48 @@ int64_t GatewayServer::GetUptimeSeconds() const {
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
     return now - st;
+}
+
+nlohmann::json GatewayServer::BuildSnapshot() const {
+    nlohmann::json snapshot;
+
+    // Presence: list of connected, authenticated clients
+    nlohmann::json presence = nlohmann::json::array();
+    {
+        std::lock_guard<std::mutex> lock(connections_mutex_);
+        for (const auto& [id, client] : connections_) {
+            if (!client.authenticated) continue;
+            nlohmann::json entry;
+            entry["connId"] = client.connection_id;
+            entry["role"] = client.role;
+            entry["scopes"] = client.scopes;
+            if (!client.client_name.empty()) entry["clientName"] = client.client_name;
+            if (!client.client_version.empty()) entry["version"] = client.client_version;
+            if (!client.device_id.empty()) entry["deviceId"] = client.device_id;
+            entry["ts"] = client.connected_at;
+            presence.push_back(entry);
+        }
+    }
+
+    snapshot["presence"] = presence;
+    snapshot["health"] = nlohmann::json::object();
+    snapshot["stateVersion"] = {{"presence", 1}, {"health", 0}};
+    snapshot["uptimeMs"] = GetUptimeSeconds() * 1000;
+
+    // Auth mode
+    {
+        std::lock_guard<std::mutex> lock(auth_mutex_);
+        snapshot["authMode"] = auth_mode_;
+    }
+
+    // Session defaults
+    snapshot["sessionDefaults"] = {
+        {"defaultAgentId", "main"},
+        {"mainKey", "main"},
+        {"mainSessionKey", "agent:main:main"}
+    };
+
+    return snapshot;
 }
 
 void GatewayServer::on_connection(std::shared_ptr<ix::ConnectionState> state,
@@ -205,10 +250,13 @@ void GatewayServer::handle_message(const std::string& conn_id,
                     if (ok) {
                         HelloOkPayload hello_ok;
                         hello_ok.openclaw_format = is_openclaw;
+                        hello_ok.conn_id = conn_id;
+                        hello_ok.snapshot = BuildSnapshot();
                         auto resp = RpcResponse::success(request.id, hello_ok.ToJson());
                         ws.send(resp.ToJson().dump());
                     } else {
-                        auto resp = RpcResponse::failure(request.id, "Authentication failed");
+                        auto resp = RpcResponse::failure(request.id,
+                            "Authentication failed", "AUTH_FAILED");
                         ws.send(resp.ToJson().dump());
                     }
                     return;
@@ -238,7 +286,7 @@ void GatewayServer::handle_rpc_request(const std::string& conn_id,
         auto it = handlers_.find(request.method);
         if (it == handlers_.end()) {
             auto resp = RpcResponse::failure(request.id,
-                                              "Unknown method: " + request.method);
+                "Unknown method: " + request.method, "METHOD_NOT_FOUND");
             ws.send(resp.ToJson().dump());
             return;
         }
@@ -255,7 +303,8 @@ void GatewayServer::handle_rpc_request(const std::string& conn_id,
     }
 
     if (!client) {
-        auto resp = RpcResponse::failure(request.id, "Connection not found");
+        auto resp = RpcResponse::failure(request.id,
+            "Connection not found", "CONNECTION_NOT_FOUND");
         ws.send(resp.ToJson().dump());
         return;
     }
@@ -268,7 +317,7 @@ void GatewayServer::handle_rpc_request(const std::string& conn_id,
     }
     if (current_auth_mode != "none" && !client->authenticated) {
         auto resp = RpcResponse::failure(request.id,
-                                          "Not authenticated: send connect.hello first");
+            "Not authenticated: send connect.hello first", "NOT_AUTHENTICATED");
         ws.send(resp.ToJson().dump());
         return;
     }
@@ -279,7 +328,8 @@ void GatewayServer::handle_rpc_request(const std::string& conn_id,
             logger_->warn("RBAC denied: method={}, role={}, conn={}",
                           request.method, client->role, conn_id);
             auto resp = RpcResponse::failure(request.id,
-                "Permission denied: insufficient scope for " + request.method);
+                "Permission denied: insufficient scope for " + request.method,
+                "PERMISSION_DENIED");
             ws.send(resp.ToJson().dump());
             return;
         }
@@ -290,11 +340,9 @@ void GatewayServer::handle_rpc_request(const std::string& conn_id,
         if (!rate_limiter_->Allow(conn_id)) {
             int retry = rate_limiter_->RetryAfter(conn_id);
             logger_->warn("Rate limited: conn={}, retry_after={}s", conn_id, retry);
-            nlohmann::json error_payload;
-            error_payload["error"] = "Rate limit exceeded";
-            error_payload["retryAfter"] = retry;
             auto resp = RpcResponse::failure(request.id,
-                "Rate limit exceeded. Retry after " + std::to_string(retry) + "s");
+                "Rate limit exceeded. Retry after " + std::to_string(retry) + "s",
+                "RATE_LIMITED", true, retry * 1000);
             ws.send(resp.ToJson().dump());
             return;
         }
@@ -306,7 +354,7 @@ void GatewayServer::handle_rpc_request(const std::string& conn_id,
         ws.send(resp.ToJson().dump());
     } catch (const std::exception& e) {
         logger_->error("RPC handler error for {}: {}", request.method, e.what());
-        auto resp = RpcResponse::failure(request.id, e.what());
+        auto resp = RpcResponse::failure(request.id, e.what(), "HANDLER_ERROR");
         ws.send(resp.ToJson().dump());
     }
 }

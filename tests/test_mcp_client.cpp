@@ -242,6 +242,33 @@ TEST_F(MCPClientTest, CallToolServerError) {
     EXPECT_TRUE(resp.result.is_null());
 }
 
+// --- inputSchema support ---
+
+TEST_F(MCPClientTest, ListToolsParsesInputSchema) {
+    MiniHTTPServer server;
+    nlohmann::json body = {
+        {"jsonrpc", "2.0"},
+        {"id", 1},
+        {"result", {
+            {"tools", {{
+                {"name", "schema_tool"},
+                {"description", "uses inputSchema"},
+                {"inputSchema", {{"type", "object"}, {"properties", {{"x", {{"type", "number"}}}}}}}
+            }}}
+        }}
+    };
+    int port = server.start(body.dump());
+    ASSERT_GT(port, 0);
+
+    MCPClient client("http://127.0.0.1:" + std::to_string(port), logger_);
+    auto tools = client.ListTools();
+
+    ASSERT_EQ(tools.size(), 1u);
+    EXPECT_EQ(tools[0].name, "schema_tool");
+    EXPECT_EQ(tools[0].parameters["type"], "object");
+    EXPECT_TRUE(tools[0].parameters["properties"].contains("x"));
+}
+
 // --- Struct defaults ---
 
 TEST_F(MCPClientTest, ToolStructDefaults) {

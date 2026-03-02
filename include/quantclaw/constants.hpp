@@ -44,14 +44,40 @@ inline constexpr const char* kDefaultGatewayUrl = "ws://127.0.0.1:18800";
 // Agent / LLM defaults
 // ------------------------------------------------------------
 
-/// Hard limit on the number of agent reasoning iterations per request
-inline constexpr int kDefaultMaxIterations = 15;
+/// Hard limit on the number of agent reasoning iterations per request.
+/// OpenClaw uses dynamic range 32-160 based on context window.
+inline constexpr int kDefaultMaxIterations = 32;
+inline constexpr int kMinMaxIterations = 32;
+inline constexpr int kMaxMaxIterations = 160;
 
 /// Default LLM temperature (0 = deterministic, 1 = very creative)
 inline constexpr double kDefaultTemperature = 0.7;
 
-/// Maximum output tokens to request from the LLM
-inline constexpr int kDefaultMaxTokens = 4096;
+/// Maximum output tokens to request from the LLM (OpenClaw default: 8192)
+inline constexpr int kDefaultMaxTokens = 8192;
+
+/// Context window guard: refuse to send if remaining tokens below this
+inline constexpr int kContextWindowMinTokens = 16384;
+
+/// Context window sizes for known model families (tokens)
+inline constexpr int kContextWindow4K   = 4096;
+inline constexpr int kContextWindow8K   = 8192;
+inline constexpr int kContextWindow16K  = 16384;
+inline constexpr int kContextWindow32K  = 32768;
+inline constexpr int kContextWindow128K = 131072;
+inline constexpr int kContextWindow200K = 200000;
+
+/// Default context window when model is unknown
+inline constexpr int kDefaultContextWindow = 128000;
+
+/// Tool result truncation: max chars for a single tool result
+inline constexpr int kToolResultMaxChars = 30000;
+
+/// Tool result truncation: lines to keep at head/tail
+inline constexpr int kToolResultKeepLines = 20;
+
+/// Overflow compaction: max retry attempts
+inline constexpr int kOverflowCompactionMaxRetries = 3;
 
 // ------------------------------------------------------------
 // Session compaction defaults

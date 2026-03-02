@@ -38,11 +38,17 @@ struct ChatCompletionRequest {
     std::vector<Message> messages;
     std::string model;
     double temperature = 0.7;
-    int max_tokens = 4096;
+    int max_tokens = 8192;
     std::vector<nlohmann::json> tools;
     bool tool_choice_auto = true;
     bool stream = false;
     std::string thinking = "off";  // "off" | "low" | "medium" | "high"
+};
+
+struct TokenUsage {
+    int prompt_tokens = 0;
+    int completion_tokens = 0;
+    int total_tokens = 0;
 };
 
 struct ChatCompletionResponse {
@@ -50,6 +56,7 @@ struct ChatCompletionResponse {
     std::vector<ToolCall> tool_calls;
     std::string finish_reason;
     bool is_stream_end = false;
+    TokenUsage usage;
 };
 
 class LLMProvider {

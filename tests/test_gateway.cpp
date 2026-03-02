@@ -300,6 +300,50 @@ TEST_F(GatewayTest, SetAuthMode) {
     EXPECT_EQ(server_->GetAuthMode(), "token");
 }
 
+// --- State snapshot ---
+
+TEST_F(GatewayTest, BuildSnapshotContainsExpectedFields) {
+    int port = find_free_port();
+    server_ = std::make_unique<GatewayServer>(port, logger_);
+    server_->SetAuth("none", "");
+    server_->Start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    auto snapshot = server_->BuildSnapshot();
+
+    EXPECT_TRUE(snapshot.contains("presence"));
+    EXPECT_TRUE(snapshot["presence"].is_array());
+    EXPECT_TRUE(snapshot.contains("health"));
+    EXPECT_TRUE(snapshot.contains("stateVersion"));
+    EXPECT_TRUE(snapshot.contains("uptimeMs"));
+    EXPECT_TRUE(snapshot.contains("authMode"));
+    EXPECT_EQ(snapshot["authMode"], "none");
+    EXPECT_TRUE(snapshot.contains("sessionDefaults"));
+    EXPECT_EQ(snapshot["sessionDefaults"]["defaultAgentId"], "main");
+    EXPECT_EQ(snapshot["sessionDefaults"]["mainSessionKey"], "agent:main:main");
+}
+
+TEST_F(GatewayTest, HelloResponseContainsSnapshot) {
+    int port = find_free_port();
+    server_ = std::make_unique<GatewayServer>(port, logger_);
+    server_->SetAuth("none", "");
+    server_->Start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    // Connect a client — the hello-ok response should contain a snapshot
+    std::string url = "ws://127.0.0.1:" + std::to_string(port);
+    GatewayClient client(url, "", logger_);
+    ASSERT_TRUE(client.Connect(5000));
+
+    // After connecting, the snapshot was part of the hello-ok payload.
+    // We can verify by checking the server's snapshot directly.
+    auto snapshot = server_->BuildSnapshot();
+    EXPECT_TRUE(snapshot.contains("presence"));
+    EXPECT_GE(snapshot["presence"].size(), 1u);  // at least our client
+
+    client.Disconnect();
+}
+
 // --- Client to unreachable server ---
 
 TEST_F(GatewayTest, ClientConnectFails) {

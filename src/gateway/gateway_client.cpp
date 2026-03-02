@@ -125,7 +125,15 @@ nlohmann::json GatewayClient::Call(const std::string& method,
 
     auto& resp = *pending->response;
     if (resp.contains("ok") && !resp["ok"].get<bool>()) {
-        throw std::runtime_error("RPC error: " + resp.value("error", "unknown error"));
+        std::string error_msg = "unknown error";
+        if (resp.contains("error")) {
+            if (resp["error"].is_object()) {
+                error_msg = resp["error"].value("message", "unknown error");
+            } else if (resp["error"].is_string()) {
+                error_msg = resp["error"].get<std::string>();
+            }
+        }
+        throw std::runtime_error("RPC error: " + error_msg);
     }
 
     return resp.value("payload", nlohmann::json::object());
@@ -182,7 +190,7 @@ void GatewayClient::handle_frame(const nlohmann::json& frame) {
             hello.method = methods::kConnectHello;
             hello.params = {
                 {"minProtocol", 1},
-                {"maxProtocol", 1},
+                {"maxProtocol", 3},
                 {"clientName", "quantclaw-cli"},
                 {"clientVersion", "0.2.0"},
                 {"role", "operator"},

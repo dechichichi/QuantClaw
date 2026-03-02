@@ -10,13 +10,14 @@ namespace quantclaw {
 
 // Classification of provider API errors, used for failover decisions.
 enum class ProviderErrorKind {
-  kRateLimit,       // 429 Too Many Requests
-  kAuthError,       // 401/403 Unauthorized/Forbidden
-  kBillingError,    // 402 / "insufficient_credits" in body
-  kTransient,       // 500/502/503/504 Server Error
-  kModelNotFound,   // 404 Not Found
-  kTimeout,         // CURL timeout or network error
-  kUnknown,         // Unclassified error
+  kRateLimit,        // 429 Too Many Requests
+  kAuthError,        // 401/403 Unauthorized/Forbidden
+  kBillingError,     // 402 / "insufficient_credits" in body
+  kTransient,        // 500/502/503/504 Server Error
+  kModelNotFound,    // 404 Not Found
+  kTimeout,          // CURL timeout or network error
+  kContextOverflow,  // Context window exceeded (400 + "context_length" in body)
+  kUnknown,          // Unclassified error
 };
 
 std::string ProviderErrorKindToString(ProviderErrorKind kind);

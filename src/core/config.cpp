@@ -5,15 +5,135 @@
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
+#include <regex>
+#include <cstdlib>
 
 namespace quantclaw {
 
+// ---------------------------------------------------------------------------
+// ${VAR} environment variable substitution
+// ---------------------------------------------------------------------------
+
+static std::string substitute_env_vars(const std::string& input) {
+    static const std::regex env_re(R"(\$\{([^}]+)\})");
+    std::string result;
+    auto begin = std::sregex_iterator(input.begin(), input.end(), env_re);
+    auto end = std::sregex_iterator();
+
+    size_t last_pos = 0;
+    for (auto it = begin; it != end; ++it) {
+        auto& match = *it;
+        result.append(input, last_pos, match.position() - last_pos);
+        std::string var_name = match[1].str();
+        const char* env_val = std::getenv(var_name.c_str());
+        if (env_val) {
+            result.append(env_val);
+        }
+        // If env var not set, replace with empty string (same as OpenClaw)
+        last_pos = match.position() + match.length();
+    }
+    result.append(input, last_pos, std::string::npos);
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// JSON5 preprocessing: strip comments and trailing commas
+// ---------------------------------------------------------------------------
+
+static std::string strip_json5(const std::string& input) {
+    std::string out;
+    out.reserve(input.size());
+
+    size_t i = 0;
+    const size_t len = input.size();
+
+    while (i < len) {
+        // --- Inside a string literal: copy verbatim, respecting escapes ---
+        if (input[i] == '"') {
+            out += '"';
+            ++i;
+            while (i < len && input[i] != '"') {
+                if (input[i] == '\\' && i + 1 < len) {
+                    out += input[i];
+                    out += input[i + 1];
+                    i += 2;
+                } else {
+                    out += input[i];
+                    ++i;
+                }
+            }
+            if (i < len) {
+                out += '"';  // closing quote
+                ++i;
+            }
+            continue;
+        }
+
+        // --- Line comment: // ---
+        if (i + 1 < len && input[i] == '/' && input[i + 1] == '/') {
+            i += 2;
+            while (i < len && input[i] != '\n') ++i;
+            continue;
+        }
+
+        // --- Block comment: /* ... */ ---
+        if (i + 1 < len && input[i] == '/' && input[i + 1] == '*') {
+            i += 2;
+            while (i + 1 < len && !(input[i] == '*' && input[i + 1] == '/')) ++i;
+            if (i + 1 < len) i += 2;  // skip */
+            continue;
+        }
+
+        out += input[i];
+        ++i;
+    }
+
+    // --- Strip trailing commas before } or ] ---
+    std::string result;
+    result.reserve(out.size());
+    for (size_t j = 0; j < out.size(); ++j) {
+        if (out[j] == ',') {
+            // Look ahead past whitespace for } or ]
+            size_t k = j + 1;
+            while (k < out.size() && (out[k] == ' ' || out[k] == '\t' ||
+                                       out[k] == '\n' || out[k] == '\r')) {
+                ++k;
+            }
+            if (k < out.size() && (out[k] == '}' || out[k] == ']')) {
+                continue;  // skip trailing comma
+            }
+        }
+        result += out[j];
+    }
+
+    return result;
+}
+
+static void expand_env_in_json(nlohmann::json& j) {
+    if (j.is_string()) {
+        auto& s = j.get_ref<std::string&>();
+        if (s.find("${") != std::string::npos) {
+            s = substitute_env_vars(s);
+        }
+    } else if (j.is_object()) {
+        for (auto& [key, value] : j.items()) {
+            expand_env_in_json(value);
+        }
+    } else if (j.is_array()) {
+        for (auto& element : j) {
+            expand_env_in_json(element);
+        }
+    }
+}
+
 AgentConfig AgentConfig::FromJson(const nlohmann::json& json) {
     AgentConfig config;
-    config.model = json.value("model", "qwen-max");
+    config.model = json.value("model", "anthropic/claude-sonnet-4-6");
     config.max_iterations = json.value("maxIterations", json.value("max_iterations", kDefaultMaxIterations));
     config.temperature = json.value("temperature", kDefaultTemperature);
     config.max_tokens = json.value("maxTokens", json.value("max_tokens", kDefaultMaxTokens));
+    config.context_window = json.value("contextWindow",
+                                       json.value("context_window", kDefaultContextWindow));
     config.thinking = json.value("thinking", "off");
     config.fallbacks = json.value("fallbacks", std::vector<std::string>{});
 
@@ -135,6 +255,14 @@ GatewayConfig GatewayConfig::FromJson(const nlohmann::json& json) {
 }
 
 QuantClawConfig QuantClawConfig::FromJson(const nlohmann::json& json) {
+    // Expand ${VAR} references in a mutable copy
+    nlohmann::json expanded = json;
+    expand_env_in_json(expanded);
+
+    return FromJsonExpanded(expanded);
+}
+
+QuantClawConfig QuantClawConfig::FromJsonExpanded(const nlohmann::json& json) {
     QuantClawConfig config;
 
     // ================================================================
@@ -150,13 +278,13 @@ QuantClawConfig QuantClawConfig::FromJson(const nlohmann::json& json) {
 
     // ================================================================
     // OpenClaw "llm" section → agent + providers (flat, single provider)
-    // Format: { "provider": "openai", "model": "qwen-max", "apiKey": "...", "baseUrl": "...", "temperature": 0.2, "maxTokens": 2048 }
+    // Format: { "provider": "openai", "model": "anthropic/claude-sonnet-4-6", "apiKey": "...", "baseUrl": "...", "temperature": 0.2, "maxTokens": 2048 }
     // ================================================================
     if (json.contains("llm") && json["llm"].is_object()) {
         const auto& llm = json["llm"];
         std::string provider_name = llm.value("provider", "openai");
 
-        config.agent.model = llm.value("model", "qwen-max");
+        config.agent.model = llm.value("model", "anthropic/claude-sonnet-4-6");
         config.agent.temperature = llm.value("temperature", kDefaultTemperature);
         config.agent.max_tokens = llm.value("maxTokens", kDefaultMaxTokens);
 
@@ -316,9 +444,10 @@ static nlohmann::json read_json_file(const std::string& filepath) {
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open config file: " + filepath);
     }
-    nlohmann::json j;
-    file >> j;
-    return j;
+    std::string content((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+    std::string clean = strip_json5(content);
+    return nlohmann::json::parse(clean);
 }
 
 static void write_json_file(const std::string& filepath,
@@ -410,11 +539,25 @@ QuantClawConfig QuantClawConfig::LoadFromFile(const std::string& filepath) {
         throw std::runtime_error("Failed to open config file: " + expanded_path);
     }
 
-    nlohmann::json json;
-    file >> json;
+    std::string content((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
     file.close();
 
+    std::string clean = strip_json5(content);
+    nlohmann::json json = nlohmann::json::parse(clean);
+
     return FromJson(json);
+}
+
+int AgentConfig::DynamicMaxIterations() const {
+    // Scale linearly: 32K → 32 iterations, 200K → 160 iterations
+    if (context_window <= kContextWindow32K) return kMinMaxIterations;
+    if (context_window >= kContextWindow200K) return kMaxMaxIterations;
+
+    double ratio = static_cast<double>(context_window - kContextWindow32K)
+                 / (kContextWindow200K - kContextWindow32K);
+    return kMinMaxIterations +
+           static_cast<int>(ratio * (kMaxMaxIterations - kMinMaxIterations));
 }
 
 } // namespace quantclaw
