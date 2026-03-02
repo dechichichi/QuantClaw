@@ -17,9 +17,11 @@ public:
     int RequestCommand(const std::vector<std::string>& args);
     int StopCommand(const std::vector<std::string>& args);
 
+    void SetGatewayUrl(const std::string& url) { gateway_url_ = url; }
+
 private:
     std::shared_ptr<spdlog::logger> logger_;
-    std::string gateway_url_ = "ws://127.0.0.1:18789";
+    std::string gateway_url_ = "ws://127.0.0.1:18800";
 };
 
 } // namespace quantclaw::cli

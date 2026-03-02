@@ -25,8 +25,8 @@ RUN mkdir -p build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON .. && \
     make -j$(nproc)
 
-# Make e2e script executable
-RUN chmod +x tests/e2e_test.sh
+# Normalize line endings (CRLF -> LF) and make e2e script executable
+RUN sed -i 's/\r//' tests/e2e_test.sh && chmod +x tests/e2e_test.sh
 
 # Create directories expected by the gateway
 RUN mkdir -p /root/.quantclaw/agents/default/workspace && \

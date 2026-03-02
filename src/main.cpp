@@ -35,6 +35,20 @@ int main(int argc, char* argv[]) {
     auto session_cmds = std::make_shared<quantclaw::cli::SessionCommands>(logger);
     auto onboard_cmds = std::make_shared<quantclaw::cli::OnboardCommands>(logger);
 
+    // Load config early to derive the gateway URL for CLI commands.
+    // Silently falls back to the default (ws://127.0.0.1:18800) if no config exists.
+    try {
+        auto cfg = quantclaw::QuantClawConfig::LoadFromFile(
+            quantclaw::QuantClawConfig::DefaultConfigPath());
+        int port = cfg.gateway.port > 0 ? cfg.gateway.port : 18800;
+        std::string url = "ws://127.0.0.1:" + std::to_string(port);
+        gateway_cmds->SetGatewayUrl(url);
+        agent_cmds->SetGatewayUrl(url);
+        session_cmds->SetGatewayUrl(url);
+    } catch (...) {
+        // No config file yet â€” defaults are fine.
+    }
+
     // Build CLI
     quantclaw::cli::CLIManager cli;
 
@@ -92,7 +106,7 @@ int main(int argc, char* argv[]) {
             if (sub == "status")    return gateway_cmds->StatusCommand(sub_args);
             if (sub == "call")      return gateway_cmds->CallCommand(sub_args);
 
-            // Flags on direct gateway command â†?foreground mode
+            // Flags on direct gateway command ï¿½?foreground mode
             if (sub == "--port" || sub == "--foreground" || sub == "--bind") {
                 return gateway_cmds->ForegroundCommand(args);
             }

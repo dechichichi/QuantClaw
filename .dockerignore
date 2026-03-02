@@ -1,0 +1,29 @@
+# Build output
+build/
+**/build/
+
+# Node.js dependencies (contain symlinks that break Docker context transfer)
+node_modules/
+**/node_modules/
+
+# Git (including submodules which may contain symlinks)
+.git/
+.github/
+refs/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp

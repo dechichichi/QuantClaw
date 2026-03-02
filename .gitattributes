@@ -1,0 +1,34 @@
+# Default: normalize line endings to LF in the repo
+* text=auto eol=lf
+
+# Shell scripts must always have LF
+*.sh text eol=lf
+
+# C/C++ source files
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h   text eol=lf
+*.c   text eol=lf
+
+# CMake files
+CMakeLists.txt text eol=lf
+*.cmake        text eol=lf
+
+# TypeScript / JavaScript
+*.ts  text eol=lf
+*.js  text eol=lf
+*.json text eol=lf
+
+# Docker / config
+Dockerfile*  text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+
+# Markdown
+*.md text eol=lf
+
+# Windows binaries: keep as-is
+*.exe binary
+*.dll binary
+*.lib binary
+*.obj binary
