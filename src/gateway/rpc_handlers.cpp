@@ -16,8 +16,10 @@
 #include "quantclaw/plugins/plugin_system.hpp"
 #include "quantclaw/gateway/command_queue.hpp"
 #include "quantclaw/core/message_commands.hpp"
+#include "quantclaw/core/memory_search.hpp"
 #include "quantclaw/config.hpp"
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <sstream>
 
@@ -393,6 +395,30 @@ void register_rpc_handlers(
         }
     );
 
+    // --- channels.logout (OpenClaw compat stub) ---
+    server.RegisterHandler("channels.logout",
+        [logger](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+            std::string id = params.value("id", "");
+            logger->info("channels.logout requested for channel '{}'", id);
+            return {{"ok", true}};
+        }
+    );
+
+    // --- agents.list (OpenClaw multi-agent compat stub) ---
+    // QuantClaw uses a single default agent; return it so OC clients don't crash.
+    server.RegisterHandler("agents.list",
+        [](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
+            return nlohmann::json::array({
+                nlohmann::json{
+                    {"id",          "default"},
+                    {"name",        "Default Agent"},
+                    {"description", "QuantClaw default agent"},
+                    {"enabled",     true}
+                }
+            });
+        }
+    );
+
     // --- chain.execute ---
     server.RegisterHandler(methods::kChainExecute,
         [tool_registry, logger](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
@@ -406,14 +432,15 @@ void register_rpc_handlers(
         }
     );
 
-    // --- config.reload ---
+    // --- config.reload / config.apply (OpenClaw alias) ---
     if (reload_fn) {
-        server.RegisterHandler(methods::kConfigReload,
-            [reload_fn, logger](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
-                reload_fn();
-                return {{"ok", true}};
-            }
-        );
+        auto reload_handler = [reload_fn, logger](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
+            reload_fn();
+            return {{"ok", true}};
+        };
+        server.RegisterHandler(methods::kConfigReload, reload_handler);
+        // OpenClaw clients use "config.apply" for hot-reload
+        server.RegisterHandler("config.apply", reload_handler);
     }
 
     // ================================================================
@@ -534,16 +561,49 @@ void register_rpc_handlers(
     );
 
     // --- status (alias for gateway.status) ---
+    // Returns an OpenClaw-compatible StatusSummary so OC clients don't crash
+    // on missing fields (heartbeat, sessions.byAgent, channelSummary, etc.).
     server.RegisterHandler(methods::kOcStatus,
-        [&server, session_manager, logger](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
+        [&server, session_manager, &config, logger](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
             auto sessions = session_manager->ListSessions();
+
+            // Build sessions.recent (last 5, lightweight)
+            nlohmann::json recent = nlohmann::json::array();
+            int recent_count = std::min(5, static_cast<int>(sessions.size()));
+            for (int i = static_cast<int>(sessions.size()) - recent_count;
+                 i < static_cast<int>(sessions.size()); ++i) {
+                recent.push_back({
+                    {"key",       sessions[i].session_key},
+                    {"sessionId", sessions[i].session_id},
+                    {"updatedAt", sessions[i].updated_at},
+                    {"model",     config.agent.model}
+                });
+            }
+
             return {
-                {"running", true},
-                {"port", server.GetPort()},
+                // QuantClaw fields
+                {"running",     true},
+                {"port",        server.GetPort()},
                 {"connections", server.GetConnectionCount()},
-                {"uptime", server.GetUptimeSeconds()},
-                {"sessions", sessions.size()},
-                {"version", "0.2.0"}
+                {"uptime",      server.GetUptimeSeconds()},
+                {"version",     "0.2.0"},
+                // OpenClaw compatibility fields
+                {"heartbeat", {
+                    {"defaultAgentId", "default"},
+                    {"agents",         nlohmann::json::array()}
+                }},
+                {"channelSummary",    nlohmann::json::array()},
+                {"queuedSystemEvents", nlohmann::json::array()},
+                {"sessions", {
+                    {"count",   sessions.size()},
+                    {"paths",   nlohmann::json::array()},
+                    {"defaults", {
+                        {"model",         config.agent.model},
+                        {"contextTokens", config.agent.max_tokens}
+                    }},
+                    {"recent",  recent},
+                    {"byAgent", nlohmann::json::array()}
+                }}
             };
         }
     );
@@ -551,24 +611,60 @@ void register_rpc_handlers(
     // --- models.list ---
     server.RegisterHandler(methods::kOcModelsList,
         [&config, provider_registry, logger](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
-            nlohmann::json models = nlohmann::json::array();
+            nlohmann::json models_arr = nlohmann::json::array();
 
-            // Active model
-            models.push_back({
+            // Try model catalog first (from models.providers config)
+            if (provider_registry) {
+                auto catalog = provider_registry->GetModelCatalog();
+                if (!catalog.empty()) {
+                    for (const auto& ce : catalog) {
+                        auto entry = ce.ToJson();
+                        entry["active"] = (ce.id == config.agent.model);
+                        models_arr.push_back(std::move(entry));
+                    }
+
+                    // Ensure active model is present
+                    bool active_found = false;
+                    for (const auto& m : models_arr) {
+                        if (m.value("active", false)) { active_found = true; break; }
+                    }
+                    if (!active_found) {
+                        models_arr.push_back({
+                            {"id", config.agent.model},
+                            {"name", config.agent.model},
+                            {"provider", "default"},
+                            {"active", true}
+                        });
+                    }
+
+                    // Build aliases map
+                    nlohmann::json aliases = nlohmann::json::object();
+                    for (const auto& a : provider_registry->Aliases()) {
+                        aliases[a.alias] = a.target;
+                    }
+
+                    return nlohmann::json{
+                        {"models", models_arr},
+                        {"current", config.agent.model},
+                        {"aliases", aliases}
+                    };
+                }
+            }
+
+            // Fallback: legacy format (no model catalog)
+            models_arr.push_back({
                 {"id", config.agent.model},
                 {"provider", "default"},
                 {"active", true}
             });
 
-            // List models from registered providers
             if (provider_registry) {
                 for (const auto& pid : provider_registry->ProviderIds()) {
                     auto p = provider_registry->GetProvider(pid);
                     if (p) {
                         for (const auto& m : p->GetSupportedModels()) {
-                            // Skip duplicate of active model
                             if (m == config.agent.model && pid == "default") continue;
-                            models.push_back({
+                            models_arr.push_back({
                                 {"id", m},
                                 {"provider", pid},
                                 {"active", m == config.agent.model}
@@ -578,7 +674,18 @@ void register_rpc_handlers(
                 }
             }
 
-            return models;
+            nlohmann::json aliases = nlohmann::json::object();
+            if (provider_registry) {
+                for (const auto& a : provider_registry->Aliases()) {
+                    aliases[a.alias] = a.target;
+                }
+            }
+
+            return nlohmann::json{
+                {"models", models_arr},
+                {"current", config.agent.model},
+                {"aliases", aliases}
+            };
         }
     );
 
@@ -718,6 +825,47 @@ void register_rpc_handlers(
 
                 bool ok = skill_loader->InstallSkill(meta);
                 return {{"ok", ok}, {"name", name}};
+            }
+        );
+    }
+
+    // --- cron.list ---
+    if (cron_scheduler) {
+        server.RegisterHandler(methods::kCronList,
+            [cron_scheduler](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
+                auto jobs = cron_scheduler->ListJobs();
+                nlohmann::json result = nlohmann::json::array();
+                for (const auto& job : jobs) {
+                    result.push_back(job.ToJson());
+                }
+                return result;
+            }
+        );
+
+        // --- cron.add ---
+        server.RegisterHandler(methods::kCronAdd,
+            [cron_scheduler](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string schedule = params.value("schedule", "");
+                std::string message = params.value("message", "");
+                std::string name = params.value("name", message.substr(0, 30));
+                std::string session_key = params.value("sessionKey", "agent:main:main");
+                if (schedule.empty() || message.empty()) {
+                    throw std::runtime_error("schedule and message are required");
+                }
+                auto id = cron_scheduler->AddJob(name, schedule, message, session_key);
+                return {{"ok", true}, {"id", id}};
+            }
+        );
+
+        // --- cron.remove ---
+        server.RegisterHandler(methods::kCronRemove,
+            [cron_scheduler](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string id = params.value("id", "");
+                if (id.empty()) {
+                    throw std::runtime_error("cron job id is required");
+                }
+                bool removed = cron_scheduler->RemoveJob(id);
+                return {{"ok", removed}};
             }
         );
     }
@@ -1037,10 +1185,50 @@ void register_rpc_handlers(
         );
     }
 
-    int handler_count = 22;  // base handlers
+    // --- memory.status ---
+    {
+        const char* home = std::getenv("HOME");
+        std::string home_str = home ? home : "/tmp";
+        auto workspace = std::filesystem::path(home_str) /
+                         ".quantclaw/agents/main/workspace";
+
+        server.RegisterHandler(methods::kMemoryStatus,
+            [workspace, logger](const nlohmann::json& /*params*/, ClientConnection& /*client*/) -> nlohmann::json {
+                quantclaw::MemorySearch search(logger);
+                search.IndexDirectory(workspace);
+                return search.Stats();
+            }
+        );
+
+        // --- memory.search ---
+        server.RegisterHandler(methods::kMemorySearch,
+            [workspace, logger](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string query = params.value("query", "");
+                int max_results = params.value("maxResults", 10);
+                if (query.empty()) {
+                    throw std::runtime_error("query is required");
+                }
+                quantclaw::MemorySearch search(logger);
+                search.IndexDirectory(workspace);
+                auto results = search.Search(query, max_results);
+                nlohmann::json arr = nlohmann::json::array();
+                for (const auto& r : results) {
+                    arr.push_back({
+                        {"source", r.source},
+                        {"content", r.content},
+                        {"score", r.score},
+                        {"lineNumber", r.line_number}
+                    });
+                }
+                return arr;
+            }
+        );
+    }
+
+    int handler_count = 24;  // base handlers (22 + 2 memory)
     if (reload_fn) handler_count++;
     if (skill_loader) handler_count += 2;
-    if (cron_scheduler) handler_count += 3;
+    if (cron_scheduler) handler_count += 6;  // list, add, remove, update, run, runs
     if (exec_approval_mgr) handler_count += 2;
     if (plugin_system) handler_count += 7;
     if (command_queue) handler_count += 4;

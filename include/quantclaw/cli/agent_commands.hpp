@@ -19,10 +19,12 @@ public:
     int StopCommand(const std::vector<std::string>& args);
 
     void SetGatewayUrl(const std::string& url) { gateway_url_ = url; }
+    void SetAuthToken(const std::string& token) { auth_token_ = token; }
 
 private:
     std::shared_ptr<spdlog::logger> logger_;
     std::string gateway_url_ = kDefaultGatewayUrl;
+    std::string auth_token_;
 };
 
 } // namespace quantclaw::cli

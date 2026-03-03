@@ -43,7 +43,7 @@ int AgentCommands::RequestCommand(const std::vector<std::string>& args) {
     }
 
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (!client->Connect()) {
             std::cerr << "Error: Cannot connect to gateway at " << gateway_url_ << std::endl;
             std::cerr << "Is the gateway running? Start it with: quantclaw gateway" << std::endl;
@@ -91,7 +91,7 @@ int AgentCommands::RequestCommand(const std::vector<std::string>& args) {
 
 int AgentCommands::StopCommand(const std::vector<std::string>& /*args*/) {
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (!client->Connect()) {
             std::cerr << "Error: Cannot connect to gateway" << std::endl;
             return 1;

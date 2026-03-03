@@ -480,19 +480,21 @@ TEST_F(RpcHandlersTest, ChatHistoryAlias) {
     client->Disconnect();
 }
 
-// Test models.list stub
+// Test models.list returns structured response with models array
 TEST_F(RpcHandlersTest, ModelsListStub) {
     auto client = make_client();
     ASSERT_TRUE(client->Connect(5000));
 
     auto result = client->Call("models.list");
 
-    ASSERT_TRUE(result.is_array());
-    EXPECT_GE(result.size(), 1u);
-    EXPECT_TRUE(result[0].contains("id"));
-    EXPECT_TRUE(result[0].contains("provider"));
-    EXPECT_TRUE(result[0].contains("active"));
-    EXPECT_EQ(result[0]["active"], true);
+    ASSERT_TRUE(result.is_object());
+    ASSERT_TRUE(result.contains("models"));
+    ASSERT_TRUE(result["models"].is_array());
+    EXPECT_GE(result["models"].size(), 1u);
+    EXPECT_TRUE(result["models"][0].contains("id"));
+    EXPECT_TRUE(result["models"][0].contains("active"));
+    EXPECT_TRUE(result.contains("current"));
+    EXPECT_TRUE(result.contains("aliases"));
 
     client->Disconnect();
 }

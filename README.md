@@ -469,6 +469,52 @@ docker run -d \
 
 The Docker image uses a multi-stage build (Ubuntu 22.04) and runs as a non-root user. Configuration is persisted via the `/home/quantclaw/.quantclaw` volume. Docker files are located in the `scripts/` directory.
 
+## Testing
+
+### Unit Tests
+
+```bash
+cd build
+./quantclaw_tests
+# or
+ctest --output-on-failure
+```
+
+### Smoke Tests (Integration)
+
+The smoke test suite starts a real gateway process and exercises HTTP REST, WebSocket RPC, and concurrent connections — no API key required:
+
+```bash
+bash tests/smoke_test.sh
+```
+
+With an API key, agent conversation tests are also run:
+
+```bash
+OPENAI_API_KEY=sk-... bash tests/smoke_test.sh
+```
+
+Tests cover: lifecycle (health/status/auth), config RPCs, session RPCs, plugin RPCs, skill/cron/memory/queue/channel status, 10 concurrent WebSocket connections, and graceful shutdown. Logs are saved to `/tmp/quantclaw-smoke-ci/gateway.log`.
+
+### Manual LLM Testing
+
+```bash
+# Start gateway
+quantclaw gateway
+
+# Non-streaming agent request
+curl -X POST http://localhost:18801/api/agent/request \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello!", "sessionKey": "test:manual"}'
+
+# OpenAI-compatible chat completion
+curl -X POST http://localhost:18801/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "openai/qwen-max", "messages": [{"role": "user", "content": "Hi"}]}'
+```
+
 ## Plugin Ecosystem
 
 QuantClaw runs OpenClaw TypeScript plugins via a Node.js sidecar process. The C++ main process manages the sidecar lifecycle and communicates over **TCP loopback (127.0.0.1)** using JSON-RPC 2.0.

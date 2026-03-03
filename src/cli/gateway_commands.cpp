@@ -26,6 +26,7 @@
 #include "quantclaw/security/rbac.hpp"
 #include "quantclaw/security/rate_limiter.hpp"
 #include "quantclaw/gateway/command_queue.hpp"
+#include "quantclaw/plugins/plugin_system.hpp"
 #include "quantclaw/platform/process.hpp"
 #include <atomic>
 #include <functional>
@@ -33,9 +34,6 @@
 #include <thread>
 
 // Forward declare from rpc_handlers.cpp
-namespace quantclaw {
-    class PluginSystem;
-}
 namespace quantclaw::gateway {
     void register_rpc_handlers(
         GatewayServer& server,
@@ -130,6 +128,18 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
         entry.base_url = prov.base_url;
         entry.timeout = prov.timeout;
         provider_registry->AddProvider(entry);
+    }
+
+    // Load model providers from models.providers config section
+    if (!config.model_providers.empty()) {
+        provider_registry->LoadModelProviders(config.model_providers);
+    }
+
+    // Load model aliases from agents.defaults.models
+    for (const auto& [key, entry] : config.model_entries) {
+        if (!entry.alias.empty()) {
+            provider_registry->AddAlias(entry.alias, key);
+        }
     }
 
     // Resolve the configured model to get initial provider
@@ -337,11 +347,15 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
     );
     command_queue->Start();
 
+    // Initialize plugin system
+    quantclaw::PluginSystem plugin_system(logger_);
+    plugin_system.Initialize(config, workspace_dir);
+
     // Register RPC handlers
     gateway::register_rpc_handlers(server, session_manager, agent_loop, prompt_builder,
         tool_registry, config, logger_, reload_fn, provider_registry,
         skill_loader, cron_scheduler, exec_approval_mgr,
-        nullptr, command_queue.get());
+        &plugin_system, command_queue.get());
 
     // Start server
     try {
@@ -424,10 +438,11 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
     logger_->info("Press Ctrl+C to stop");
 
     // Install signal handler
-    quantclaw::SignalHandler::Install([&server, &http_server, &adapter_manager, this]() {
+    quantclaw::SignalHandler::Install([&server, &http_server, &adapter_manager, &plugin_system, this]() {
         logger_->info("Shutdown signal received");
         if (adapter_manager) adapter_manager->Stop();
         if (http_server) http_server->Stop();
+        plugin_system.Shutdown();
         server.Stop();
     }, reload_fn);
 
@@ -468,6 +483,7 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
 
     if (adapter_manager) adapter_manager->Stop();
     if (http_server) http_server->Stop();
+    plugin_system.Shutdown();
     command_queue->Stop();
     server.Stop();
     logger_->info("Gateway stopped gracefully");
@@ -509,7 +525,7 @@ int GatewayCommands::CallCommand(const std::vector<std::string>& args) {
     }
 
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (!client->Connect(3000)) {
             std::cerr << "Error: Gateway not running" << std::endl;
             return 1;
@@ -548,7 +564,7 @@ int GatewayCommands::StatusCommand(const std::vector<std::string>& args) {
 
     // First try connecting to the gateway via RPC
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (client->Connect(3000)) {
             auto result = client->Call("gateway.status", {});
             client->Disconnect();

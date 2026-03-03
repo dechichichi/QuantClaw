@@ -221,7 +221,9 @@ struct HelloOkPayload {
                 "channels.list", "channels.status",
                 "chain.execute",
                 "skills.status", "skills.install",
+                "cron.list", "cron.add", "cron.remove",
                 "cron.update", "cron.run", "cron.runs",
+                "memory.status", "memory.search",
                 "exec.approval.request", "exec.approvals.get",
                 "models.set",
                 "plugins.list", "plugins.tools", "plugins.call_tool",
@@ -305,9 +307,16 @@ namespace methods {
     constexpr const char* kSkillsInstall    = "skills.install";
 
     // Cron
+    constexpr const char* kCronList         = "cron.list";
+    constexpr const char* kCronAdd          = "cron.add";
+    constexpr const char* kCronRemove       = "cron.remove";
     constexpr const char* kCronUpdate       = "cron.update";
     constexpr const char* kCronRun          = "cron.run";
     constexpr const char* kCronRuns         = "cron.runs";
+
+    // Memory
+    constexpr const char* kMemoryStatus     = "memory.status";
+    constexpr const char* kMemorySearch     = "memory.search";
 
     // Exec approval
     constexpr const char* kExecApprovalReq  = "exec.approval.request";

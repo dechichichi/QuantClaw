@@ -25,7 +25,7 @@ int SessionCommands::ListCommand(const std::vector<std::string>& args) {
     }
 
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (!client->Connect()) {
             std::cerr << "Error: Cannot connect to gateway" << std::endl;
             return 1;
@@ -89,7 +89,7 @@ int SessionCommands::HistoryCommand(const std::vector<std::string>& args) {
     }
 
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (!client->Connect()) {
             std::cerr << "Error: Cannot connect to gateway" << std::endl;
             return 1;
@@ -144,7 +144,7 @@ int SessionCommands::DeleteCommand(const std::vector<std::string>& args) {
     }
 
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (!client->Connect()) {
             std::cerr << "Error: Cannot connect to gateway" << std::endl;
             return 1;
@@ -178,7 +178,7 @@ int SessionCommands::ResetCommand(const std::vector<std::string>& args) {
     }
 
     try {
-        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, "", logger_);
+        auto client = std::make_shared<gateway::GatewayClient>(gateway_url_, auth_token_, logger_);
         if (!client->Connect()) {
             std::cerr << "Error: Cannot connect to gateway" << std::endl;
             return 1;

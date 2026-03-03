@@ -128,7 +128,10 @@ static void expand_env_in_json(nlohmann::json& j) {
 
 AgentConfig AgentConfig::FromJson(const nlohmann::json& json) {
     AgentConfig config;
-    config.model = json.value("model", "anthropic/claude-sonnet-4-6");
+    // model can be a string or an object (primary/fallbacks) — only parse string here
+    if (json.contains("model") && json["model"].is_string()) {
+        config.model = json["model"].get<std::string>();
+    }
     config.max_iterations = json.value("maxIterations", json.value("max_iterations", kDefaultMaxIterations));
     config.temperature = json.value("temperature", kDefaultTemperature);
     config.max_tokens = json.value("maxTokens", json.value("max_tokens", kDefaultMaxTokens));
@@ -148,11 +151,49 @@ AgentConfig AgentConfig::FromJson(const nlohmann::json& json) {
     return config;
 }
 
+ModelCost ModelCost::FromJson(const nlohmann::json& json) {
+    ModelCost c;
+    c.input = json.value("input", 0.0);
+    c.output = json.value("output", 0.0);
+    c.cache_read = json.value("cacheRead", json.value("cache_read", 0.0));
+    c.cache_write = json.value("cacheWrite", json.value("cache_write", 0.0));
+    return c;
+}
+
+ModelDefinition ModelDefinition::FromJson(const nlohmann::json& json) {
+    ModelDefinition m;
+    m.id = json.value("id", "");
+    m.name = json.value("name", "");
+    m.reasoning = json.value("reasoning", false);
+    m.input = json.value("input", std::vector<std::string>{"text"});
+    if (json.contains("cost") && json["cost"].is_object()) {
+        m.cost = ModelCost::FromJson(json["cost"]);
+    }
+    m.context_window = json.value("contextWindow", json.value("context_window", 0));
+    m.max_tokens = json.value("maxTokens", json.value("max_tokens", 0));
+    return m;
+}
+
+ModelEntryConfig ModelEntryConfig::FromJson(const nlohmann::json& json) {
+    ModelEntryConfig c;
+    c.alias = json.value("alias", "");
+    if (json.contains("params") && json["params"].is_object()) {
+        c.params = json["params"];
+    }
+    return c;
+}
+
 ProviderConfig ProviderConfig::FromJson(const nlohmann::json& json) {
     ProviderConfig config;
     config.api_key = json.value("apiKey", json.value("api_key", ""));
     config.base_url = json.value("baseUrl", json.value("base_url", ""));
+    config.api = json.value("api", "");
     config.timeout = json.value("timeout", kDefaultProviderTimeoutSec);
+    if (json.contains("models") && json["models"].is_array()) {
+        for (const auto& m : json["models"]) {
+            config.models.push_back(ModelDefinition::FromJson(m));
+        }
+    }
     return config;
 }
 
@@ -318,6 +359,40 @@ QuantClawConfig QuantClawConfig::FromJsonExpanded(const nlohmann::json& json) {
     if (json.contains("providers") && json["providers"].is_object()) {
         for (const auto& [key, value] : json["providers"].items()) {
             config.providers[key] = ProviderConfig::FromJson(value);
+        }
+    }
+
+    // ================================================================
+    // Models providers (OpenClaw multi-model format: models.providers)
+    // ================================================================
+    if (json.contains("models") && json["models"].is_object() &&
+        json["models"].contains("providers") && json["models"]["providers"].is_object()) {
+        for (const auto& [id, val] : json["models"]["providers"].items()) {
+            config.model_providers[id] = ProviderConfig::FromJson(val);
+        }
+    }
+
+    // ================================================================
+    // Model aliases (agents.defaults.models)
+    // ================================================================
+    if (json.contains("agents") && json["agents"].is_object() &&
+        json["agents"].contains("defaults") && json["agents"]["defaults"].is_object() &&
+        json["agents"]["defaults"].contains("models") && json["agents"]["defaults"]["models"].is_object()) {
+        for (const auto& [key, val] : json["agents"]["defaults"]["models"].items()) {
+            config.model_entries[key] = ModelEntryConfig::FromJson(val);
+        }
+    }
+
+    // ================================================================
+    // Agent model object form (agents.defaults.model as object with primary/fallbacks)
+    // ================================================================
+    if (json.contains("agents") && json["agents"].is_object() &&
+        json["agents"].contains("defaults") && json["agents"]["defaults"].is_object() &&
+        json["agents"]["defaults"].contains("model") && json["agents"]["defaults"]["model"].is_object()) {
+        const auto& model_val = json["agents"]["defaults"]["model"];
+        config.agent.model = model_val.value("primary", config.agent.model);
+        if (model_val.contains("fallbacks") && model_val["fallbacks"].is_array()) {
+            config.agent.fallbacks = model_val["fallbacks"].get<std::vector<std::string>>();
         }
     }
 

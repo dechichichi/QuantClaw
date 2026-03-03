@@ -40,19 +40,31 @@ int main(int argc, char* argv[]) {
     auto session_cmds = std::make_shared<quantclaw::cli::SessionCommands>(logger);
     auto onboard_cmds = std::make_shared<quantclaw::cli::OnboardCommands>(logger);
 
-    // Load config early to derive the gateway URL for CLI commands.
+    // Load config early to derive the gateway URL and auth token for ALL CLI commands.
     // Silently falls back to the default (ws://127.0.0.1:18800) if no config exists.
+    std::string gateway_url = kDefaultGatewayUrl;
+    std::string auth_token;
     try {
         auto cfg = quantclaw::QuantClawConfig::LoadFromFile(
             quantclaw::QuantClawConfig::DefaultConfigPath());
         int port = cfg.gateway.port > 0 ? cfg.gateway.port : kDefaultGatewayPort;
-        std::string url = "ws://127.0.0.1:" + std::to_string(port);
-        gateway_cmds->SetGatewayUrl(url);
-        agent_cmds->SetGatewayUrl(url);
-        session_cmds->SetGatewayUrl(url);
+        gateway_url = "ws://127.0.0.1:" + std::to_string(port);
+        auth_token = cfg.gateway.auth.token;
+        if (auth_token.empty()) {
+            const char* env_token = std::getenv("QUANTCLAW_AUTH_TOKEN");
+            if (env_token) auth_token = env_token;
+        }
     } catch (...) {
         // No config file yet — defaults are fine.
     }
+
+    // Propagate to class-based command handlers
+    gateway_cmds->SetGatewayUrl(gateway_url);
+    agent_cmds->SetGatewayUrl(gateway_url);
+    session_cmds->SetGatewayUrl(gateway_url);
+    gateway_cmds->SetAuthToken(auth_token);
+    agent_cmds->SetAuthToken(auth_token);
+    session_cmds->SetAuthToken(auth_token);
 
     // Build CLI
     quantclaw::cli::CLIManager cli;
@@ -185,7 +197,7 @@ int main(int argc, char* argv[]) {
         "health",
         "Gateway health check",
         {},
-        [logger](int argc, char** argv) -> int {
+        [logger, gateway_url, auth_token](int argc, char** argv) -> int {
             bool json_output = false;
             int timeout_ms = 3000;
 
@@ -200,7 +212,7 @@ int main(int argc, char* argv[]) {
 
             try {
                 auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                    "ws://127.0.0.1:18800", "", logger);
+                    gateway_url, auth_token, logger);
                 if (!client->Connect(timeout_ms)) {
                     if (json_output) {
                         std::cout << R"({"status":"unreachable"})" << std::endl;
@@ -233,7 +245,7 @@ int main(int argc, char* argv[]) {
         "config",
         "Manage configuration",
         {"c"},
-        [logger](int argc, char** argv) -> int {
+        [logger, gateway_url, auth_token](int argc, char** argv) -> int {
             std::vector<std::string> args;
             for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
 
@@ -248,7 +260,7 @@ int main(int argc, char* argv[]) {
             if (sub == "reload") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (!client->Connect(3000)) {
                         std::cerr << "Error: Gateway not running" << std::endl;
                         return 1;
@@ -272,7 +284,7 @@ int main(int argc, char* argv[]) {
 
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (!client->Connect(3000)) {
                         // Fallback: read config file directly
                         auto config = quantclaw::QuantClawConfig::LoadFromFile(
@@ -333,7 +345,7 @@ int main(int argc, char* argv[]) {
 
                     // Notify running gateway to reload
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(1000)) {
                         client->Call("config.reload", {});
                         client->Disconnect();
@@ -359,7 +371,7 @@ int main(int argc, char* argv[]) {
 
                     // Notify running gateway to reload
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(1000)) {
                         client->Call("config.reload", {});
                         client->Disconnect();
@@ -438,7 +450,7 @@ int main(int argc, char* argv[]) {
         "doctor",
         "Health check (config, deps, connectivity)",
         {},
-        [logger](int /*argc*/, char** /*argv*/) -> int {
+        [logger, gateway_url, auth_token](int /*argc*/, char** /*argv*/) -> int {
             std::cout << "QuantClaw Doctor" << std::endl;
             std::cout << std::string(40, '=') << std::endl;
 
@@ -466,7 +478,7 @@ int main(int argc, char* argv[]) {
             bool gw_ok = false;
             try {
                 auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                    "ws://127.0.0.1:18800", "", logger);
+                    gateway_url, auth_token, logger);
                 gw_ok = client->Connect(2000);
                 if (gw_ok) client->Disconnect();
             } catch (const std::exception&) {}
@@ -483,7 +495,7 @@ int main(int argc, char* argv[]) {
         "cron",
         "Manage scheduled tasks",
         {},
-        [logger](int argc, char** argv) -> int {
+        [logger, gateway_url, auth_token](int argc, char** argv) -> int {
             std::vector<std::string> args;
             for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
 
@@ -494,7 +506,7 @@ int main(int argc, char* argv[]) {
             if (args.empty() || args[0] == "list") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("cron.list", {});
                         client->Disconnect();
@@ -527,7 +539,7 @@ int main(int argc, char* argv[]) {
                 }
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("cron.add", {
                             {"schedule", schedule},
@@ -546,7 +558,7 @@ int main(int argc, char* argv[]) {
             if (args[0] == "remove" && args.size() >= 2) {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(3000)) {
                         client->Call("cron.remove", {{"id", args[1]}});
                         client->Disconnect();
@@ -568,7 +580,7 @@ int main(int argc, char* argv[]) {
         "memory",
         "Search and manage memory",
         {},
-        [logger](int argc, char** argv) -> int {
+        [logger, gateway_url, auth_token](int argc, char** argv) -> int {
             std::vector<std::string> args;
             for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
 
@@ -587,7 +599,7 @@ int main(int argc, char* argv[]) {
 
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("memory.search",
                                                    {{"query", query}});
@@ -623,7 +635,7 @@ int main(int argc, char* argv[]) {
             if (args[0] == "status") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("memory.status", {});
                         client->Disconnect();
@@ -682,7 +694,7 @@ int main(int argc, char* argv[]) {
         "channels",
         "Manage communication channels",
         {"ch"},
-        [logger](int argc, char** argv) -> int {
+        [logger, gateway_url, auth_token](int argc, char** argv) -> int {
             std::vector<std::string> args;
             for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
 
@@ -691,9 +703,9 @@ int main(int argc, char* argv[]) {
             if (args.size() > 1)
                 sub_args.assign(args.begin() + 1, args.end());
 
-            auto make_client = [&logger]() -> std::shared_ptr<quantclaw::gateway::GatewayClient> {
+            auto make_client = [&logger, &gateway_url, &auth_token]() -> std::shared_ptr<quantclaw::gateway::GatewayClient> {
                 auto c = std::make_shared<quantclaw::gateway::GatewayClient>(
-                    "ws://127.0.0.1:18800", "", logger);
+                    gateway_url, auth_token, logger);
                 if (!c->Connect(3000)) {
                     std::cerr << "Error: Gateway not running" << std::endl;
                     return nullptr;
@@ -868,7 +880,7 @@ int main(int argc, char* argv[]) {
         "models",
         "Manage AI models",
         {"m"},
-        [logger](int argc, char** argv) -> int {
+        [logger, gateway_url, auth_token](int argc, char** argv) -> int {
             std::vector<std::string> args;
             for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
 
@@ -884,7 +896,7 @@ int main(int argc, char* argv[]) {
                 }
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (!client->Connect(3000)) {
                         // Fallback: show configured model from config file
                         auto config = quantclaw::QuantClawConfig::LoadFromFile(
@@ -901,7 +913,42 @@ int main(int argc, char* argv[]) {
                         if (result.contains("current")) {
                             std::cout << "Current: " << result["current"].get<std::string>() << std::endl;
                         }
-                        if (result.contains("providers") && result["providers"].is_array()) {
+                        // New format: models array with metadata
+                        if (result.contains("models") && result["models"].is_array()) {
+                            std::cout << "\nAvailable models:" << std::endl;
+                            for (const auto& m : result["models"]) {
+                                bool active = m.value("active", false);
+                                std::string id = m.value("id", "");
+                                std::string prov = m.value("provider", "");
+                                std::string name = m.value("name", "");
+                                int ctx = m.value("contextWindow", 0);
+                                bool reasoning = m.value("reasoning", false);
+
+                                std::cout << (active ? "  * " : "    ");
+                                std::cout << id << " (" << prov << ")";
+                                if (!name.empty() && name != id) {
+                                    std::cout << " \xe2\x80\x94 " << name;
+                                }
+                                if (ctx > 0) {
+                                    std::cout << ", " << (ctx / 1000) << "K context";
+                                }
+                                if (reasoning) {
+                                    std::cout << " [reasoning]";
+                                }
+                                // Check for image input
+                                if (m.contains("input") && m["input"].is_array()) {
+                                    for (const auto& inp : m["input"]) {
+                                        if (inp.is_string() && inp.get<std::string>() == "image") {
+                                            std::cout << " [image]";
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (active) std::cout << "   [active]";
+                                std::cout << std::endl;
+                            }
+                        } else if (result.contains("providers") && result["providers"].is_array()) {
+                            // Legacy format fallback
                             std::cout << "\nProviders:" << std::endl;
                             for (const auto& p : result["providers"]) {
                                 std::cout << "  " << p.value("id", "")
@@ -912,6 +959,15 @@ int main(int argc, char* argv[]) {
                                         std::cout << "    - " << m.get<std::string>() << std::endl;
                                     }
                                 }
+                            }
+                        }
+
+                        // Show aliases
+                        if (result.contains("aliases") && result["aliases"].is_object() &&
+                            !result["aliases"].empty()) {
+                            std::cout << "\nAliases:" << std::endl;
+                            for (auto& [alias, target] : result["aliases"].items()) {
+                                std::cout << "  " << alias << " -> " << target.get<std::string>() << std::endl;
                             }
                         }
                     }
@@ -936,7 +992,7 @@ int main(int argc, char* argv[]) {
 
                     // Also update running gateway via RPC
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (client->Connect(3000)) {
                         client->Call("models.set", {{"model", model}});
                         client->Disconnect();
@@ -952,7 +1008,7 @@ int main(int argc, char* argv[]) {
             if (sub == "aliases") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18800", "", logger);
+                        gateway_url, auth_token, logger);
                     if (!client->Connect(3000)) {
                         std::cerr << "Gateway not running" << std::endl;
                         return 1;

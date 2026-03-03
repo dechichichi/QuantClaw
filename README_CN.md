@@ -472,6 +472,52 @@ docker run -d \
 
 Docker 镜像使用多阶段构建（基于 Ubuntu 22.04），以非 root 用户运行。配置数据通过 `/home/quantclaw/.quantclaw` 卷持久化。Docker 文件位于 `scripts/` 目录。
 
+## 测试
+
+### 单元测试
+
+```bash
+cd build
+./quantclaw_tests
+# 或
+ctest --output-on-failure
+```
+
+### 集成冒烟测试
+
+冒烟测试会启动一个真实的网关进程，测试 HTTP REST、WebSocket RPC 和并发连接——无需 API Key：
+
+```bash
+bash tests/smoke_test.sh
+```
+
+提供 API Key 时，还会运行 Agent 对话测试：
+
+```bash
+OPENAI_API_KEY=sk-... bash tests/smoke_test.sh
+```
+
+测试覆盖：生命周期（健康检查/状态/认证）、配置 RPC、会话 RPC、插件 RPC、技能/定时任务/记忆/队列/频道状态、10 个并发 WebSocket 连接、优雅关闭。日志保存在 `/tmp/quantclaw-smoke-ci/gateway.log`。
+
+### 手动 LLM 测试
+
+```bash
+# 启动网关
+quantclaw gateway
+
+# 非流式 Agent 请求
+curl -X POST http://localhost:18801/api/agent/request \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好！", "sessionKey": "test:manual"}'
+
+# OpenAI 兼容 Chat Completion
+curl -X POST http://localhost:18801/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "openai/qwen-max", "messages": [{"role": "user", "content": "你好"}]}'
+```
+
 ## 插件生态
 
 QuantClaw 通过 Node.js Sidecar 进程运行 OpenClaw TypeScript 插件。C++ 主进程管理 Sidecar 生命周期，通过 **TCP 本地回环（127.0.0.1）** 以 JSON-RPC 2.0 协议通信。

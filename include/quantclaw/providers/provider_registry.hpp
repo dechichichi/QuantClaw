@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include "quantclaw/providers/llm_provider.hpp"
+#include "quantclaw/config.hpp"
 
 namespace quantclaw {
 
@@ -32,8 +33,10 @@ struct ProviderEntry {
   std::string base_url;
   std::string api_key;
   std::string api_key_env;  // Env var name for API key
+  std::string api;          // API type: "openai-completions", "anthropic-messages"
   int timeout = 30;
   nlohmann::json extra;     // Provider-specific settings
+  std::vector<ModelDefinition> models;  // Per-provider model definitions
 };
 
 // Model alias mapping (OpenClaw compatible)
@@ -98,6 +101,25 @@ class ProviderRegistry {
 
   // Get provider entry (for inspection)
   const ProviderEntry* GetEntry(const std::string& provider_id) const;
+
+  // Load models from model_providers config section (OpenClaw models.providers)
+  void LoadModelProviders(const std::unordered_map<std::string, ProviderConfig>& model_providers);
+
+  // Model catalog entry (merged from all providers)
+  struct ModelCatalogEntry {
+      std::string id;
+      std::string name;
+      std::string provider;
+      int context_window = 0;
+      bool reasoning = false;
+      std::vector<std::string> input;
+      ModelCost cost;
+      int max_tokens = 0;
+      nlohmann::json ToJson() const;
+  };
+
+  // Get model catalog (merged from all providers)
+  std::vector<ModelCatalogEntry> GetModelCatalog() const;
 
  private:
   std::shared_ptr<spdlog::logger> logger_;

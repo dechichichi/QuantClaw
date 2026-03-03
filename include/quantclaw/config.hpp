@@ -36,10 +36,39 @@ struct AgentConfig {
     int DynamicMaxIterations() const;
 };
 
+// --- Model definitions (OpenClaw multi-model format) ---
+
+struct ModelCost {
+    double input = 0;
+    double output = 0;
+    double cache_read = 0;
+    double cache_write = 0;
+    static ModelCost FromJson(const nlohmann::json& json);
+};
+
+struct ModelDefinition {
+    std::string id;              // "qwen3-max"
+    std::string name;            // "Qwen3 Max"
+    bool reasoning = false;
+    std::vector<std::string> input = {"text"};  // "text", "image"
+    ModelCost cost;
+    int context_window = 0;      // 128000
+    int max_tokens = 0;          // 8192
+    static ModelDefinition FromJson(const nlohmann::json& json);
+};
+
+struct ModelEntryConfig {
+    std::string alias;           // "max", "plus", "vision"
+    nlohmann::json params;       // Provider-specific API params
+    static ModelEntryConfig FromJson(const nlohmann::json& json);
+};
+
 struct ProviderConfig {
     std::string api_key;
     std::string base_url;
+    std::string api;             // "openai-completions", "anthropic-messages"
     int timeout = kDefaultProviderTimeoutSec;
+    std::vector<ModelDefinition> models;  // Per-provider model definitions
 
     static ProviderConfig FromJson(const nlohmann::json& json);
 };
@@ -214,6 +243,12 @@ struct QuantClawConfig {
 
     // Queue config (raw JSON, consumed by CommandQueue)
     nlohmann::json queue_config;
+
+    // Models section (OpenClaw format: models.providers)
+    std::unordered_map<std::string, ProviderConfig> model_providers;
+
+    // Per-model aliases and params (agents.defaults.models)
+    std::unordered_map<std::string, ModelEntryConfig> model_entries;
 
     // Legacy compatibility
     std::unordered_map<std::string, ToolConfig> tools;

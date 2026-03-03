@@ -260,6 +260,80 @@ const ProviderEntry* ProviderRegistry::GetEntry(
   return it != entries_.end() ? &it->second : nullptr;
 }
 
+void ProviderRegistry::LoadModelProviders(
+    const std::unordered_map<std::string, ProviderConfig>& model_providers) {
+  for (const auto& [id, prov] : model_providers) {
+    auto it = entries_.find(id);
+    if (it != entries_.end()) {
+      // Merge models into existing entry
+      for (const auto& m : prov.models) {
+        it->second.models.push_back(m);
+      }
+      if (!prov.api.empty()) {
+        it->second.api = prov.api;
+      }
+    } else {
+      // Create new entry
+      ProviderEntry entry;
+      entry.id = id;
+      entry.display_name = id;
+      entry.api_key = prov.api_key;
+      entry.base_url = prov.base_url;
+      entry.api = prov.api;
+      entry.timeout = prov.timeout;
+      entry.models = prov.models;
+
+      // Resolve API key from env if needed
+      if (entry.api_key.empty()) {
+        entry.api_key = resolve_api_key(entry);
+      }
+
+      entries_[id] = entry;
+    }
+    logger_->debug("Loaded model provider: {} ({} models)", id, prov.models.size());
+  }
+}
+
+nlohmann::json ProviderRegistry::ModelCatalogEntry::ToJson() const {
+  nlohmann::json j;
+  j["id"] = id;
+  j["name"] = name;
+  j["provider"] = provider;
+  if (context_window > 0) j["contextWindow"] = context_window;
+  j["reasoning"] = reasoning;
+  if (!input.empty()) j["input"] = input;
+  if (max_tokens > 0) j["maxTokens"] = max_tokens;
+  if (cost.input > 0 || cost.output > 0) {
+    j["cost"] = {
+      {"input", cost.input},
+      {"output", cost.output}
+    };
+    if (cost.cache_read > 0) j["cost"]["cacheRead"] = cost.cache_read;
+    if (cost.cache_write > 0) j["cost"]["cacheWrite"] = cost.cache_write;
+  }
+  return j;
+}
+
+std::vector<ProviderRegistry::ModelCatalogEntry>
+ProviderRegistry::GetModelCatalog() const {
+  std::vector<ModelCatalogEntry> catalog;
+  for (const auto& [pid, entry] : entries_) {
+    for (const auto& m : entry.models) {
+      ModelCatalogEntry ce;
+      ce.id = m.id;
+      ce.name = m.name;
+      ce.provider = pid;
+      ce.context_window = m.context_window;
+      ce.reasoning = m.reasoning;
+      ce.input = m.input;
+      ce.cost = m.cost;
+      ce.max_tokens = m.max_tokens;
+      catalog.push_back(std::move(ce));
+    }
+  }
+  return catalog;
+}
+
 std::string ProviderRegistry::resolve_api_key(
     const ProviderEntry& entry) const {
   // Direct value

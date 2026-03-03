@@ -129,6 +129,49 @@ jobs:
 
         echo "All files are properly formatted."
 
+  smoke-test:
+    name: Smoke Test (Integration)
+    runs-on: ubuntu-latest
+    needs: [build-test-linux]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake ninja-build \
+          libspdlog-dev nlohmann-json3-dev \
+          libcurl4-openssl-dev libssl-dev \
+          gcc-11 g++-11 curl jq
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install ws dependency
+      run: cd scripts/smoke-tests && npm install
+
+    - name: Build
+      env:
+        CC: gcc-11
+        CXX: g++-11
+      run: |
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17
+        cmake --build build --parallel
+
+    - name: Run smoke tests
+      run: bash tests/smoke_test.sh
+
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: smoke-test-logs
+        path: /tmp/quantclaw-smoke-ci/
+
   static-analysis:
     name: Static Analysis (cppcheck)
     runs-on: ubuntu-latest
