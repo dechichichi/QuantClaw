@@ -227,6 +227,13 @@ std::string OpenAIProvider::MakeApiRequest(
     if (http_code >= 400) {
         auto error_kind = ClassifyHttpError(
             static_cast<int>(http_code), read_buffer);
+        if (retry_capture.retry_after_seconds > 0) {
+            logger_->warn("OpenAI API HTTP {}: rate limited, retry-after={}s",
+                http_code, retry_capture.retry_after_seconds);
+        } else {
+            logger_->error("OpenAI API HTTP {}: {}", http_code,
+                read_buffer.substr(0, 256));
+        }
         ProviderError err(error_kind, static_cast<int>(http_code),
                           "OpenAI API error (HTTP " +
                           std::to_string(http_code) + "): " + read_buffer,
@@ -437,6 +444,12 @@ void OpenAIProvider::ChatCompletionStream(const ChatCompletionRequest& request,
 
     if (http_code >= 400) {
         auto error_kind = ClassifyHttpError(static_cast<int>(http_code), "");
+        if (retry_capture.retry_after_seconds > 0) {
+            logger_->warn("OpenAI streaming HTTP {}: rate limited, retry-after={}s",
+                http_code, retry_capture.retry_after_seconds);
+        } else {
+            logger_->error("OpenAI streaming HTTP {}", http_code);
+        }
         ProviderError err(error_kind, static_cast<int>(http_code),
                           "OpenAI streaming API error (HTTP " +
                           std::to_string(http_code) + ")",

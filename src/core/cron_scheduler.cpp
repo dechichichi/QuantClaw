@@ -232,8 +232,11 @@ std::string CronScheduler::AddJob(const std::string& name,
 
 bool CronScheduler::RemoveJob(const std::string& id) {
   std::lock_guard<std::mutex> lock(mu_);
-  auto it = std::remove_if(jobs_.begin(), jobs_.end(),
-                            [&id](const CronJob& j) { return j.id == id; });
+  // Accept exact match or unambiguous prefix match (e.g. first 8 chars)
+  auto matcher = [&id](const CronJob& j) {
+    return j.id == id || j.id.substr(0, id.size()) == id;
+  };
+  auto it = std::remove_if(jobs_.begin(), jobs_.end(), matcher);
   if (it == jobs_.end()) return false;
 
   jobs_.erase(it, jobs_.end());

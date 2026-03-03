@@ -165,7 +165,9 @@ struct SystemConfig {
     std::string name = "QuantClaw";
     std::string version = "0.2.0";
     std::string log_level = "info";
-    int port = 0;  // 0 = not set, use gateway.port
+    int port = 0;                // 0 = not set, use gateway.port
+    int log_retention_days = 7;  // Delete log files older than N days (0 = keep forever)
+    int log_max_size_mb = 50;    // Total log storage cap in MiB across all rotated files
 
     static SystemConfig FromJson(const nlohmann::json& json) {
         SystemConfig c;
@@ -173,6 +175,8 @@ struct SystemConfig {
         c.version = json.value("version", "0.2.0");
         c.log_level = json.value("logLevel", "info");
         c.port = json.value("port", 0);
+        c.log_retention_days = json.value("logRetentionDays", 7);
+        c.log_max_size_mb = json.value("logMaxSizeMb", 50);
         return c;
     }
 };

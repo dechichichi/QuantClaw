@@ -254,6 +254,9 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
                     response.usage.prompt_tokens,
                     response.usage.completion_tokens);
             }
+            logger_->debug("Token usage: prompt={} completion={}",
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens);
 
             // Record success for failover tracking
             if (failover_resolver_ && !last_provider_id_.empty()) {
@@ -584,6 +587,9 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
                     stream_usage.prompt_tokens,
                     stream_usage.completion_tokens);
             }
+            logger_->debug("Token usage (stream): prompt={} completion={}",
+                stream_usage.prompt_tokens,
+                stream_usage.completion_tokens);
 
             // Record success for failover tracking
             if (failover_resolver_ && !last_provider_id_.empty()) {

@@ -1,12 +1,14 @@
 // Copyright 2025 QuantClaw Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include "quantclaw/config.hpp"
 #include "quantclaw/cli/cli_manager.hpp"
 #include "quantclaw/cli/gateway_commands.hpp"
@@ -22,26 +24,60 @@ using quantclaw::kDefaultGatewayPort;
 using quantclaw::kDefaultGatewayUrl;
 using quantclaw::kDefaultHttpPort;
 
-static std::shared_ptr<spdlog::logger> create_logger() {
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_level(spdlog::level::info);
-    console_sink->set_pattern("[%^%l%$] %v");
-    auto logger = std::make_shared<spdlog::logger>("quantclaw", console_sink);
+static spdlog::level::level_enum parse_log_level(const std::string& s) {
+    if (s == "trace") return spdlog::level::trace;
+    if (s == "debug") return spdlog::level::debug;
+    if (s == "warn")  return spdlog::level::warn;
+    if (s == "error") return spdlog::level::err;
+    return spdlog::level::info;
+}
+
+static std::shared_ptr<spdlog::logger> create_logger(
+    const std::string& log_level = "info",
+    const std::string& log_dir = "",
+    int log_max_size_mb = 50) {
+    auto level = parse_log_level(log_level);
+
+    auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+    console_sink->set_level(level);
+    console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
+
+    std::vector<spdlog::sink_ptr> sinks{console_sink};
+
+    if (!log_dir.empty()) {
+        try {
+            std::filesystem::create_directories(log_dir);
+            // Divide total cap evenly across 5 rotated files (min 1 MiB each).
+            int max_mb = std::max(1, log_max_size_mb);
+            std::size_t per_file_bytes =
+                static_cast<std::size_t>(std::max(1, max_mb / 5)) * 1024 * 1024;
+            auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+                log_dir + "/quantclaw.log",
+                per_file_bytes,
+                5);  // keep 5 rotated files
+            file_sink->set_level(spdlog::level::debug);
+            file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+            sinks.push_back(file_sink);
+        } catch (const std::exception& e) {
+            // Console-only fallback — not fatal.
+            std::cerr << "Warning: cannot open log file in " << log_dir
+                      << ": " << e.what() << "\n";
+        }
+    }
+
+    auto logger = std::make_shared<spdlog::logger>(
+        "quantclaw", sinks.begin(), sinks.end());
+    logger->set_level(spdlog::level::trace);  // sinks control their own levels
     spdlog::set_default_logger(logger);
     return logger;
 }
 
 int main(int argc, char* argv[]) {
+    // Bootstrap with defaults; recreated below once config is loaded.
     auto logger = create_logger();
 
-    // Create shared command handlers
-    auto gateway_cmds = std::make_shared<quantclaw::cli::GatewayCommands>(logger);
-    auto agent_cmds = std::make_shared<quantclaw::cli::AgentCommands>(logger);
-    auto session_cmds = std::make_shared<quantclaw::cli::SessionCommands>(logger);
-    auto onboard_cmds = std::make_shared<quantclaw::cli::OnboardCommands>(logger);
-
-    // Load config early to derive the gateway URL and auth token for ALL CLI commands.
-    // Silently falls back to the default (ws://127.0.0.1:18800) if no config exists.
+    // Load config early to derive gateway URL, auth token, and log settings.
+    // Silently falls back to defaults if no config exists.
     std::string gateway_url = kDefaultGatewayUrl;
     std::string auth_token;
     try {
@@ -54,9 +90,21 @@ int main(int argc, char* argv[]) {
             const char* env_token = std::getenv("QUANTCLAW_AUTH_TOKEN");
             if (env_token) auth_token = env_token;
         }
+        // Rebuild logger with config-specified level and log directory.
+        auto cfg_dir = std::filesystem::path(
+            quantclaw::QuantClawConfig::DefaultConfigPath()).parent_path();
+        logger = create_logger(cfg.system.log_level,
+                               (cfg_dir / "logs").string(),
+                               cfg.system.log_max_size_mb);
     } catch (...) {
         // No config file yet — defaults are fine.
     }
+
+    // Create shared command handlers
+    auto gateway_cmds = std::make_shared<quantclaw::cli::GatewayCommands>(logger);
+    auto agent_cmds = std::make_shared<quantclaw::cli::AgentCommands>(logger);
+    auto session_cmds = std::make_shared<quantclaw::cli::SessionCommands>(logger);
+    auto onboard_cmds = std::make_shared<quantclaw::cli::OnboardCommands>(logger);
 
     // Propagate to class-based command handlers
     gateway_cmds->SetGatewayUrl(gateway_url);
@@ -510,17 +558,29 @@ int main(int argc, char* argv[]) {
                     if (client->Connect(3000)) {
                         auto result = client->Call("cron.list", {});
                         client->Disconnect();
-                        if (result.is_array()) {
-                            if (result.empty()) {
-                                std::cout << "No cron jobs" << std::endl;
-                            } else {
-                                for (const auto& job : result) {
-                                    std::cout << job.value("id", "").substr(0, 8) << "  "
-                                              << job.value("schedule", "") << "  "
-                                              << job.value("name", "") << "  "
-                                              << (job.value("enabled", true) ? "ON" : "OFF")
-                                              << std::endl;
+                        // RPC returns {jobs:[...], total, ...}; extract array
+                        nlohmann::json jobs_arr = nlohmann::json::array();
+                        if (result.is_object() && result.contains("jobs")) {
+                            jobs_arr = result["jobs"];
+                        } else if (result.is_array()) {
+                            jobs_arr = result;
+                        }
+                        if (jobs_arr.empty()) {
+                            std::cout << "No cron jobs" << std::endl;
+                        } else {
+                            for (const auto& job : jobs_arr) {
+                                std::string id = job.value("id", "");
+                                std::string sched;
+                                if (job.contains("schedule") && job["schedule"].is_object()) {
+                                    sched = job["schedule"].value("expr", "");
+                                } else {
+                                    sched = job.value("schedule", "");
                                 }
+                                std::cout << id << "  "
+                                          << sched << "  "
+                                          << job.value("name", "") << "  "
+                                          << (job.value("enabled", true) ? "ON" : "OFF")
+                                          << std::endl;
                             }
                         }
                         return 0;

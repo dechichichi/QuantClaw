@@ -54,7 +54,10 @@ struct RpcRequest {
         RpcRequest req;
         req.id = j.at("id").get<std::string>();
         req.method = j.at("method").get<std::string>();
-        req.params = j.value("params", nlohmann::json::object());
+        auto it = j.find("params");
+        req.params = (it != j.end() && !it->is_null())
+                         ? *it
+                         : nlohmann::json::object();
         return req;
     }
 };

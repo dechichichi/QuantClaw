@@ -174,6 +174,11 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
     "allow": ["group:fs", "group:runtime"],
     "deny": []
   },
+  "system": {
+    "logLevel": "info",
+    "logRetentionDays": 7,
+    "logMaxSizeMb": 50
+  },
   "security": {
     "sandbox": { "enabled": true }
   }
@@ -181,6 +186,17 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
 ```
 
 The model field uses `provider/model-name` prefix routing. If no prefix is given, it defaults to `openai`. See `config.example.json` for a full example with all options.
+
+### Log Retention
+
+QuantClaw enforces automatic log cleanup on every gateway startup to prevent disk exhaustion.
+
+| Option | Key | Default | Description |
+|--------|-----|---------|-------------|
+| Retention period | `system.logRetentionDays` | `7` | Delete `.log` files older than N days. Set to `0` to keep forever. |
+| Total size cap | `system.logMaxSizeMb` | `50` | Maximum total log storage in MiB, split across 5 rotating files (~10 MiB each). |
+
+Log files are stored at `~/.quantclaw/logs/`. The main application log (`quantclaw.log`) is size-rotated automatically by spdlog; the gateway service log (`gateway.log`, written by systemd) is time-pruned at every startup.
 
 ### Dependencies
 

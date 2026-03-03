@@ -1538,10 +1538,17 @@ void register_rpc_handlers(
             (void)max_bytes;
             (void)cursor;
 
-            // Attempt to read the log file if QUANTCLAW_LOG_FILE env is set
+            // Attempt to read the log file if QUANTCLAW_LOG_FILE env is set.
+            // Canonicalize the path to prevent path traversal (CodeQL cpp/path-injection).
             std::string log_file;
             const char* env_log = std::getenv("QUANTCLAW_LOG_FILE");
-            if (env_log) log_file = env_log;
+            if (env_log) {
+                std::error_code ec;
+                auto canonical = std::filesystem::weakly_canonical(env_log, ec);
+                if (!ec && canonical.is_absolute()) {
+                    log_file = canonical.string();
+                }
+            }
 
             nlohmann::json lines = nlohmann::json::array();
             long long new_cursor = cursor;

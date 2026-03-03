@@ -33,12 +33,20 @@ int SessionCommands::ListCommand(const std::vector<std::string>& args) {
 
         auto result = client->Call("sessions.list", {{"limit", limit}});
 
+        // RPC returns {sessions:[...], count, ...}; extract the array
+        nlohmann::json sessions_arr = nlohmann::json::array();
+        if (result.is_object() && result.contains("sessions")) {
+            sessions_arr = result["sessions"];
+        } else if (result.is_array()) {
+            sessions_arr = result;
+        }
+
         if (json_output) {
-            std::cout << result.dump(2) << std::endl;
+            std::cout << sessions_arr.dump(2) << std::endl;
         } else {
-            if (result.is_array() && result.empty()) {
+            if (sessions_arr.empty()) {
                 std::cout << "No sessions found" << std::endl;
-            } else if (result.is_array()) {
+            } else {
                 std::cout << std::left
                           << std::setw(35) << "KEY"
                           << std::setw(15) << "ID"
@@ -47,11 +55,20 @@ int SessionCommands::ListCommand(const std::vector<std::string>& args) {
                           << std::endl;
                 std::cout << std::string(95, '-') << std::endl;
 
-                for (const auto& session : result) {
+                for (const auto& session : sessions_arr) {
+                    // updatedAt may be a string ISO timestamp or a number (ms epoch)
+                    std::string updated_at;
+                    if (session.contains("updatedAt")) {
+                        if (session["updatedAt"].is_string()) {
+                            updated_at = session["updatedAt"].get<std::string>();
+                        } else if (session["updatedAt"].is_number()) {
+                            updated_at = std::to_string(session["updatedAt"].get<long long>());
+                        }
+                    }
                     std::cout << std::left
                               << std::setw(35) << session.value("key", "")
-                              << std::setw(15) << session.value("id", "")
-                              << std::setw(25) << session.value("updatedAt", "")
+                              << std::setw(15) << session.value("sessionId", "")
+                              << std::setw(25) << updated_at
                               << std::setw(20) << session.value("displayName", "")
                               << std::endl;
                 }

@@ -29,6 +29,8 @@
 #include "quantclaw/plugins/plugin_system.hpp"
 #include "quantclaw/platform/process.hpp"
 #include <atomic>
+#include <chrono>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <thread>
@@ -53,6 +55,26 @@ namespace quantclaw::gateway {
 }
 
 namespace quantclaw::cli {
+
+// Removes *.log and spdlog rotated files (*.log.N) older than |days| days.
+// Called at gateway startup to prevent unbounded disk usage.
+// days == 0 disables pruning (keep forever).
+static void PruneOldLogs(const std::filesystem::path& dir, int days) {
+    if (days <= 0 || !std::filesystem::exists(dir)) return;
+    auto cutoff = std::filesystem::file_time_type::clock::now() -
+                  std::chrono::hours(24 * days);
+    std::error_code ec;
+    for (auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (!entry.is_regular_file(ec)) continue;
+        // Match *.log and spdlog rotated files: *.log.1 … *.log.9
+        auto name = entry.path().filename().string();
+        if (name.find(".log") == std::string::npos) continue;
+        auto mtime = entry.last_write_time(ec);
+        if (!ec && mtime < cutoff) {
+            std::filesystem::remove(entry.path(), ec);
+        }
+    }
+}
 
 GatewayCommands::GatewayCommands(std::shared_ptr<spdlog::logger> logger)
     : logger_(logger) {
@@ -94,6 +116,9 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
 
     std::filesystem::create_directories(workspace_dir);
     std::filesystem::create_directories(sessions_dir);
+
+    // Prune stale log files on every startup to prevent unbounded disk growth.
+    PruneOldLogs(base_dir / "logs", config.system.log_retention_days);
 
     // Initialize components
     auto memory_manager = std::make_shared<quantclaw::MemoryManager>(workspace_dir, logger_);

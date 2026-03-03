@@ -174,6 +174,11 @@ QuantClaw 使用专属端口范围以避免与 OpenClaw 和其他服务冲突：
     "allow": ["group:fs", "group:runtime"],
     "deny": []
   },
+  "system": {
+    "logLevel": "info",
+    "logRetentionDays": 7,
+    "logMaxSizeMb": 50
+  },
   "security": {
     "sandbox": { "enabled": true }
   }
@@ -181,6 +186,17 @@ QuantClaw 使用专属端口范围以避免与 OpenClaw 和其他服务冲突：
 ```
 
 `model` 字段使用 `provider/model-name` 前缀路由。不带前缀时默认走 `openai`。任何兼容 OpenAI Chat Completion 格式的 API 都可以通过修改 `baseUrl` 接入（通义千问、DeepSeek、本地 Ollama 等）。
+
+### 日志保存策略
+
+QuantClaw 在每次网关启动时自动清理过期日志，防止磁盘被撑爆。
+
+| 配置项 | 键名 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 保存天数 | `system.logRetentionDays` | `7` | 删除超过 N 天的 `.log` 文件。设为 `0` 表示永久保留。 |
+| 总容量上限 | `system.logMaxSizeMb` | `50` | 日志文件总占用上限（MiB），均分为 5 个轮转文件（每个约 10 MiB）。 |
+
+日志保存在 `~/.quantclaw/logs/`。主日志（`quantclaw.log`）由 spdlog 按大小自动轮转；网关服务日志（`gateway.log`，由 systemd 写入）则在每次启动时按时间清理。
 
 完整配置示例见 `config.example.json`。
 
