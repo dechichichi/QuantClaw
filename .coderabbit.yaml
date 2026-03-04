@@ -1,0 +1,33 @@
+# Basic Configuration
+review:
+  enabled: true  # Enable automatic review
+  ignore_files:  # Ignore files that do not require review
+    - "*.md"
+    - "docs/**/*"
+    - "test/**/*.cpp"  # Ignore test files (optional)
+  depth: 3  # Review depth (1-5, higher means more detailed)
+
+# Language-specific Rules
+languages:
+  c_cpp:
+    style_guide: "google"  # Follow Google C++ Style Guide
+    checks:  # Dimensions to check
+      - syntax  # Syntax errors
+      - performance  # Performance issues (e.g., memory leaks, redundant loops)
+      - security  # Security vulnerabilities (e.g., buffer overflows)
+      - best_practices  # Best practices (e.g., avoid raw pointers)
+      - memory_management  # Detect memory leaks and dangling pointers
+      - concurrency  # Detect multithreading issues (e.g., shared variables without locks)
+      - api_usage  # Detect improper usage of TA-Lib/OpenCL APIs
+
+  python:
+    style_guide: "pep8"
+    checks:
+      - type_hints  # Enforce type annotations
+      - unused_imports  # Detect unused imports
+
+# PR Comment Configuration
+comments:
+  enabled: true  # Automatically add review comments in PR
+  severity: "medium"  # Only report medium/high risk issues (low/medium/high)
+  suggestions: true  # Automatically provide fix suggestions
