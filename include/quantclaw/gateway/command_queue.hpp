@@ -261,6 +261,9 @@ class CommandQueue : public quantclaw::Noncopyable {
   std::atomic<bool> running_{false};
   std::atomic<int> active_count_{0};
 
+  // Worker threads (tracked so we can join them in Stop())
+  std::vector<std::thread> workers_;
+
   // cmd_id -> session_key (for Cancel lookup)
   std::unordered_map<std::string, std::string> command_to_session_;
 };

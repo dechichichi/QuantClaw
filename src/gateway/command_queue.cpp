@@ -275,6 +275,17 @@ void CommandQueue::Stop() {
   if (dispatcher_.joinable()) {
     dispatcher_.join();
   }
+  // Join all worker threads to avoid use-after-free.
+  std::vector<std::thread> workers_to_join;
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    workers_to_join.swap(workers_);
+  }
+  for (auto& w : workers_to_join) {
+    if (w.joinable()) {
+      w.join();
+    }
+  }
   logger_->info("CommandQueue stopped");
 }
 
@@ -504,13 +515,14 @@ void CommandQueue::dispatcher_loop() {
       active_count_++;
       command_to_session_.erase(command.id);
 
-      // Dispatch to a new thread
-      lock.unlock();
-
-      std::thread([this, cmd = std::move(command)]() mutable {
+      // Dispatch to a tracked worker thread (replaces detach to avoid
+      // use-after-free when CommandQueue is destroyed).
+      workers_.emplace_back([this, cmd = std::move(command)]() mutable {
         execute_command(std::move(cmd));
-      }).detach();
+      });
 
+      // Briefly release the lock so workers can make progress.
+      lock.unlock();
       lock.lock();
     }
 
