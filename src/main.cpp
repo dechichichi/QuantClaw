@@ -8,7 +8,7 @@
 #include <vector>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/daily_file_sink.h>
 #include "quantclaw/config.hpp"
 #include "quantclaw/cli/cli_manager.hpp"
 #include "quantclaw/cli/gateway_commands.hpp"
@@ -35,7 +35,7 @@ static spdlog::level::level_enum parse_log_level(const std::string& s) {
 static std::shared_ptr<spdlog::logger> create_logger(
     const std::string& log_level = "info",
     const std::string& log_dir = "",
-    int log_max_size_mb = 50) {
+    int log_retain_days = 7) {
     auto level = parse_log_level(log_level);
 
     auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
@@ -47,14 +47,13 @@ static std::shared_ptr<spdlog::logger> create_logger(
     if (!log_dir.empty()) {
         try {
             std::filesystem::create_directories(log_dir);
-            // Divide total cap evenly across 5 rotated files (min 1 MiB each).
-            int max_mb = std::max(1, log_max_size_mb);
-            std::size_t per_file_bytes =
-                static_cast<std::size_t>(std::max(1, max_mb / 5)) * 1024 * 1024;
-            auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            // Rotate at midnight; keep log_retain_days worth of files (0 = unlimited).
+            int retain = std::max(0, log_retain_days);
+            auto file_sink = std::make_shared<spdlog::sinks::daily_file_sink_mt>(
                 log_dir + "/quantclaw.log",
-                per_file_bytes,
-                5);  // keep 5 rotated files
+                0, 0,          // rotate at 00:00 local time
+                false,         // truncate = false (append)
+                static_cast<uint16_t>(retain));
             file_sink->set_level(spdlog::level::debug);
             file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
             sinks.push_back(file_sink);
@@ -95,7 +94,7 @@ int main(int argc, char* argv[]) {
             quantclaw::QuantClawConfig::DefaultConfigPath()).parent_path();
         logger = create_logger(cfg.system.log_level,
                                (cfg_dir / "logs").string(),
-                               cfg.system.log_max_size_mb);
+                               cfg.system.log_retention_days);
     } catch (...) {
         // No config file yet — defaults are fine.
     }

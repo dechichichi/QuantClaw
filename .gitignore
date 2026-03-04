@@ -8,6 +8,12 @@ Testing/
 *.so
 *.dylib
 
+# Release artifacts (scripts/release.sh)
+dist/
+
+# clang compile commands (generated locally or by CI)
+compile_commands.json
+
 # IDE / editor
 .vscode/
 .idea/

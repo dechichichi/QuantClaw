@@ -1,0 +1,159 @@
+---
+# QuantClaw clang-tidy configuration
+# Based on Google C++ Style Guide conventions.
+#
+# Disabled checks are documented below with rationale.
+# Run: clang-tidy -p build src/**/*.cpp
+
+Checks: '
+  bugprone-*,
+  clang-analyzer-*,
+  google-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  -readability-*,
+  -cppcoreguidelines-*,
+
+  # ── bugprone ──────────────────────────────────────────────────────────────
+  -bugprone-easily-swappable-parameters,
+  # Many internal helpers take adjacent same-type params (size, offset, etc.)
+  # that are ordered by convention.  Renaming would reduce readability.
+
+  -bugprone-implicit-widening-of-multiplication-result,
+  # Common in numeric buffer-size arithmetic; not yet audited.
+
+  -bugprone-reserved-identifier,
+  # _r_ used in QC_TRY macro — single-use internal name.
+
+  -bugprone-signed-char-misuse,
+  # Not yet investigated; enable once codebase is audited.
+
+  -bugprone-branch-clone,
+  # Frequent false positives on intentional symmetric switch arms.
+
+  -bugprone-exception-escape,
+  # Several destructors call logging or IPC cleanup that may theoretically
+  # throw; suppressing until we audit noexcept propagation fully.
+
+  # ── clang-analyzer ────────────────────────────────────────────────────────
+  -clang-analyzer-cplusplus.NewDelete,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
+  # False positives with shared_ptr and arena allocators; rely on ASAN/Valgrind
+  # for real memory bugs instead.
+
+  -clang-analyzer-security.insecureAPI.rand,
+  # Flagged sites use rand() for non-cryptographic purposes (test data, IDs).
+  # Not a security concern in context.
+
+  -clang-analyzer-cplusplus.InnerPointer,
+  # False positives with string_view + json value refs in nlohmann::json.
+
+  -clang-analyzer-core.CallAndMessage,
+  # False positive: analyzer cannot see that optional/shared_ptr is checked
+  # before dereference in several callback dispatchers.
+
+  -clang-analyzer-deadcode.DeadStores,
+  # Fires on intentional "result kept for RAII side-effects" patterns.
+
+  # ── clang-diagnostic ──────────────────────────────────────────────────────
+  -clang-diagnostic-implicit-int-float-conversion,
+  # Pending audit of JSON numeric conversions.
+
+  -clang-diagnostic-unused-command-line-argument,
+  -clang-diagnostic-ignored-optimization-argument,
+  # Compiler-driver flags in compile_commands.json trigger these on CI;
+  # not reproducible locally.
+
+  # ── google ────────────────────────────────────────────────────────────────
+  -google-readability-avoid-underscore-in-googletest-name,
+  # Test fixture names use underscores for readability (e.g. Agent_Loop_Test).
+
+  -google-default-arguments,
+  # Several virtual overrides retain default args inherited from OpenClaw API
+  # surface; changing them would break plugin compatibility.
+
+  -google-explicit-constructor,
+  # Many single-arg constructors are intentionally implicit for ergonomic
+  # StatusOr / Result conversions.
+
+  -google-runtime-int,
+  # size_t / ptrdiff_t / int64_t mix in JSON and IPC serialisation layers;
+  # not yet fully audited.
+
+  # ── modernize ─────────────────────────────────────────────────────────────
+  -modernize-avoid-c-arrays,
+  # C-style arrays used in wire-format headers and static lookup tables where
+  # std::array would add noise without benefit.
+
+  -modernize-use-nodiscard,
+  # [[nodiscard]] is applied selectively (StatusOr, futures).  Blanket
+  # application would generate too much churn for little gain.
+
+  -modernize-use-trailing-return-type,
+  # Project convention prefers classic return-type syntax.
+
+  -modernize-pass-by-value,
+  # Many constructors deliberately take const-ref to avoid unnecessary copies
+  # when the arg outlives the call.
+
+  -modernize-concat-nested-namespaces,
+  # Verbose nested namespace style retained for editor-fold compatibility.
+
+  -modernize-return-braced-init-list,
+  # Explicit type in return improves readability for complex types.
+
+  -modernize-use-equals-delete,
+  # Suppressed for =delete on copy ctor/assign already marked private; no harm.
+
+  -modernize-redundant-void-arg,
+  # Style preference: explicit (void) in C-linkage function pointers.
+
+  # ── readability (disabled wholesale — too noisy for this codebase) ────────
+  -readability-convert-member-functions-to-static,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-magic-numbers,
+  -readability-make-member-function-const,
+  -readability-qualified-auto,
+  -readability-redundant-access-specifiers,
+  -readability-function-size,
+  -readability-else-after-return,
+  -readability-use-anyofallof,
+  -readability-implicit-bool-conversion,
+  '
+
+WarningsAsErrors: '*'
+
+# Only lint QuantClaw's own headers; ignore third-party / generated files.
+HeaderFilterRegex: '(include/quantclaw/.+\.hpp|src/.+\.(hpp|h))'
+
+AnalyzeTemporaryDtors: true
+
+CheckOptions:
+  # Naming conventions (Google C++ Style Guide, adapted for QuantClaw)
+  - { key: readability-identifier-naming.ClassCase,              value: CamelCase  }
+  - { key: readability-identifier-naming.EnumCase,               value: CamelCase  }
+  - { key: readability-identifier-naming.FunctionCase,           value: CamelCase  }
+  - { key: readability-identifier-naming.NamespaceCase,          value: lower_case }
+  - { key: readability-identifier-naming.StructCase,             value: CamelCase  }
+  - { key: readability-identifier-naming.UnionCase,              value: CamelCase  }
+  - { key: readability-identifier-naming.TemplateParameterCase,  value: CamelCase  }
+  - { key: readability-identifier-naming.MacroDefinitionCase,    value: UPPER_CASE }
+
+  - { key: readability-identifier-naming.GlobalConstantCase,     value: CamelCase  }
+  - { key: readability-identifier-naming.GlobalConstantPrefix,   value: k          }
+  - { key: readability-identifier-naming.MemberConstantCase,     value: CamelCase  }
+  - { key: readability-identifier-naming.MemberConstantPrefix,   value: k          }
+  - { key: readability-identifier-naming.EnumConstantCase,       value: CamelCase  }
+  - { key: readability-identifier-naming.EnumConstantPrefix,     value: k          }
+
+  - { key: readability-identifier-naming.GlobalVariableCase,     value: lower_case }
+  - { key: readability-identifier-naming.GlobalVariablePrefix,   value: g_qc_      }
+  - { key: readability-identifier-naming.VariableCase,           value: lower_case }
+
+  - { key: readability-identifier-naming.PublicMethodCase,       value: CamelCase  }
+  - { key: readability-identifier-naming.PrivateMethodCase,      value: camelBack  }
+  - { key: readability-identifier-naming.ProtectedMethodCase,    value: camelBack  }
+  - { key: readability-identifier-naming.MemberCase,             value: lower_case }
+  - { key: readability-identifier-naming.MemberSuffix,           value: _          }

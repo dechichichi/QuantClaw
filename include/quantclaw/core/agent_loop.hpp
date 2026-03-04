@@ -13,6 +13,7 @@
 #include "quantclaw/core/usage_accumulator.hpp"
 #include "quantclaw/config.hpp"
 #include <spdlog/spdlog.h>
+#include "quantclaw/common/noncopyable.hpp"
 
 namespace quantclaw {
 
@@ -34,7 +35,7 @@ using AgentEventCallback = std::function<void(const AgentEvent&)>;
 
 // --- Agent Loop ---
 
-class AgentLoop {
+class AgentLoop : public Noncopyable {
 public:
     AgentLoop(std::shared_ptr<MemoryManager> memory_manager,
               std::shared_ptr<SkillLoader> skill_loader,

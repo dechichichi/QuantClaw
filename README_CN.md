@@ -591,6 +591,8 @@ docker run -d \
 
 | 脚本 | 说明 |
 |------|------|
+| `scripts/build.sh` | 智能构建脚本：彩色输出、`-c` 清理、`--debug`/`--tests`、`--asan`/`--tsan`/`--ubsan` 消毒器、自动检测 CPU 核数、缺失依赖自动安装。 |
+| `scripts/release.sh` | 构建发布 tarball 并生成 SHA256 校验文件。从 `scripts/DOCKER_VERSION` 读取版本或接受参数。输出到 `dist/`。 |
 | `scripts/install.sh` | 原生安装：自动检测系统（Ubuntu/Debian/Fedora/Arch），安装依赖、编译源码、创建工作空间。以 root 执行：`sudo bash scripts/install.sh` |
 | `scripts/format-code.sh` | 用 `clang-format` 格式化所有 C++ 源文件。加 `--check` 参数可做 dry-run（CI 使用）。 |
 | `scripts/format-code-docker.sh` | 同上，但在 Docker 内运行，无需本地安装 `clang-format`。 |
@@ -715,17 +717,17 @@ QuantClaw 目标是完全兼容 [OpenClaw](https://github.com/openclaw/openclaw)
 | 插件钩子（24 种） | **完全** | 所有 hook name 和 mode（void/modifying/sync）对齐 |
 | 插件 Sidecar IPC | **完全** | 工具、钩子、服务、Provider、命令、HTTP 路由、网关方法 |
 | JSONL 会话格式 | **部分** | 基本读写兼容；缺 branching（parentId）、8 种 entry type、write lock |
-| 配置格式 | **部分** | 仅支持 JSON（不支持 JSON5 注释/尾逗号）、无 `$include`、无 `${VAR}` 环境变量替换 |
-| CLI 命令 | **部分** | 核心命令已有；OpenClaw 约 28 个顶级命令尚未实现 |
+| 配置格式 | **部分** | 已支持 JSON5（注释、尾逗号）和 `${VAR}` 环境变量替换；`$include` 指令待实现 |
+| CLI 命令 | **部分** | 核心命令已有；`models`、`approvals`、`gateway health/probe`、频道管理 CLI 尚未实现 |
 | Gateway RPC 协议 | **部分** | 已实现约 30 个 method；OpenClaw 约 85+ 个 method 待补 |
 | Provider 系统 | **部分** | OpenAI + Anthropic + 5 个 OpenAI 兼容；缺 OAuth、GitHub Copilot、Qwen 等 |
-| Agent 循环 | **部分** | 核心循环可用；缺 lane-based queue、auth rotation、overflow compaction |
+| Agent 循环 | **部分** | 动态迭代次数（32–160）、上下文守卫、工具结果截断、overflow compaction retry、budget pruning 均已实现；multi-stage summary 待实现 |
 | 记忆搜索 | **部分** | 仅 BM25 关键词搜索；缺 hybrid vector search（embedding、SQLite、MMR） |
-| 上下文管理 | **部分** | compaction + pruning 可用；缺 multi-stage summary、budget-based pruning |
+| 上下文管理 | **部分** | Budget-based compaction + pruning 已实现；multi-stage summary 待实现 |
 | 频道系统 | **部分** | 外部 subprocess 适配器；无内置 channel、无 7-tier routing |
-| 安全 / 沙箱 | **部分** | RBAC + rate limiter + sandbox；缺 Docker sandbox、security audit |
-| MCP | **部分** | 基础实现；method name 和 transport 正在对齐规范 |
-| Web API | **部分** | 16 个 REST 路由；缺 OpenResponses API、webhook 端点 |
+| 安全 / 沙箱 | **部分** | RBAC + rate limiter + `setrlimit` 沙箱；缺 Docker sandbox、security audit |
+| MCP | **部分** | 已实现规范 method name（`tools/list`、`tools/call`），transport 已对齐 |
+| Web API | **部分** | 16 个 REST 路由；缺 OpenResponses API（`/v1/responses`）、webhook 端点 |
 
 ### 与 OpenClaw 的主要差异
 
@@ -733,9 +735,9 @@ QuantClaw 目标是完全兼容 [OpenClaw](https://github.com/openclaw/openclaw)
 |------|----------|-----------|
 | 默认网关端口 | `18789` | `18800` |
 | 默认 HTTP 端口 | 与网关共用 | `18801`（独立） |
-| 配置格式 | JSON5，支持 `$include` 和 `${VAR}` | 标准 JSON |
-| 默认模型 | `anthropic/claude-sonnet-4-6` | `qwen-max` |
-| 默认 maxTokens | `8192` | `4096` |
+| 配置格式 | JSON5，支持 `$include` 和 `${VAR}` | JSON5 + `${VAR}`（无 `$include`） |
+| 默认模型 | `anthropic/claude-sonnet-4-6` | `anthropic/claude-sonnet-4-6` |
+| 默认 maxTokens | `8192` | `8192` |
 | 认证 profile | 多 profile + OAuth + 轮换 | 每 provider 单 key |
 | 记忆搜索 | Hybrid（向量 0.7 + BM25 0.3） | 仅 BM25 |
 | 插件执行 | 进程内（同一 Node.js） | 进程外（sidecar via TCP） |
@@ -751,20 +753,19 @@ QuantClaw 目标是完全兼容 [OpenClaw](https://github.com/openclaw/openclaw)
 | C++ 资源限制沙箱 | `setrlimit`（CPU/内存/文件大小/进程数） |
 | `viewer` RBAC 角色 | 专用只读角色 |
 
-完整差异分析见 [.claude/gap-analysis.md](.claude/gap-analysis.md)。
-
 ## 路线图
 
-当前已实现：WebSocket/HTTP 网关、多 Provider LLM 与故障转移、会话持久化、插件生态、频道适配器、MCP 支持、Onboarding 向导，共通过 769 项测试（712 项 C++ + 57 项 Sidecar）。
+当前已实现：WebSocket/HTTP 网关、多 Provider LLM 与故障转移、会话持久化、插件生态、频道适配器、MCP 支持、Onboarding 向导、JSON5 配置、`${VAR}` 环境变量替换、动态 Agent 迭代次数、Budget-based 上下文管理，共通过 791 项 C++ 测试。
 
 尚未实现：
 - TUI 交互式终端界面
-- 多 Agent 配置文件支持
-- JSON5 配置（`$include` 和 `${VAR}` 支持）
-- Hybrid 记忆搜索（向量 + BM25）
+- `models`、`approvals`、`gateway health/probe`、频道管理 CLI 命令组
+- 配置 `$include` 指令（模块化配置文件）
+- 多 auth profile + OAuth 认证流程
+- Hybrid 记忆搜索（向量 embedding + BM25、SQLite 后端）
+- Multi-stage 上下文压缩（分块 + 合并策略）
 - 内置频道适配器（Telegram、Discord、Slack）
-- Docker 沙箱隔离
-- OAuth 认证流程
+- Docker 沙箱隔离（per-session 容器）
 
 ## 故障排除
 

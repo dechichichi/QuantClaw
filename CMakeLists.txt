@@ -11,6 +11,33 @@ endif()
 
 option(BUILD_TESTS "Build tests" ON)
 
+# Sanitizer options (mutually exclusive: ASAN and TSAN cannot be combined)
+option(ENABLE_ASAN  "Build with AddressSanitizer + LeakSanitizer"   OFF)
+option(ENABLE_TSAN  "Build with ThreadSanitizer"                    OFF)
+option(ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer"         OFF)
+
+if(ENABLE_ASAN AND ENABLE_TSAN)
+    message(FATAL_ERROR "ENABLE_ASAN and ENABLE_TSAN are mutually exclusive.")
+endif()
+
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+    message(STATUS "AddressSanitizer enabled")
+endif()
+
+if(ENABLE_TSAN)
+    add_compile_options(-fsanitize=thread)
+    add_link_options(-fsanitize=thread)
+    message(STATUS "ThreadSanitizer enabled")
+endif()
+
+if(ENABLE_UBSAN)
+    add_compile_options(-fsanitize=undefined -fno-sanitize-recover=all)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "UndefinedBehaviorSanitizer enabled")
+endif()
+
 # Required dependencies
 find_package(spdlog REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -182,6 +209,9 @@ if(BUILD_TESTS)
         tests/test_skill_loader.cpp
         tests/test_memory_manager.cpp
         tests/test_agent_loop.cpp
+        tests/test_common_utils.cpp
+        tests/test_string_util.cpp
+        tests/test_parse_util.cpp
         tests/test_p1_features.cpp
         tests/test_mcp_server.cpp
         tests/test_mcp_integration.cpp
