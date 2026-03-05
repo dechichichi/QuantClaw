@@ -75,23 +75,24 @@ BUILD_DIR="$ROOT/build"
 
 # ── Dependency check ─────────────────────────────────────────────────────────
 check_dep() {
-    command -v "$1" &>/dev/null && return 0
-    warn "'$1' not found — attempting to install..."
+    local cmd="$1" apt_pkg="$2" brew_pkg="${3:-$2}" pacman_pkg="${4:-$2}"
+    command -v "$cmd" &>/dev/null && return 0
+    warn "'$cmd' not found — attempting to install..."
     if command -v apt-get &>/dev/null; then
-        sudo apt-get install -y "$2"
+        sudo apt-get install -y "$apt_pkg"
     elif command -v brew &>/dev/null; then
-        brew install "$2"
+        brew install "$brew_pkg"
     elif command -v dnf &>/dev/null; then
-        sudo dnf install -y "$2"
+        sudo dnf install -y "$apt_pkg"
     elif command -v pacman &>/dev/null; then
-        sudo pacman -S --noconfirm "$2"
+        sudo pacman -S --noconfirm "$pacman_pkg"
     else
-        die "Please install '$1' manually."
+        die "Please install '$cmd' manually."
     fi
 }
 
-check_dep cmake cmake
-check_dep ninja  ninja-build
+check_dep cmake cmake   cmake   cmake
+check_dep ninja ninja-build ninja ninja
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 if [[ $CLEAN -eq 1 && -d "$BUILD_DIR" ]]; then

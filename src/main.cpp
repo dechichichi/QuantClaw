@@ -1,6 +1,7 @@
 // Copyright 2025 QuantClaw Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -86,7 +87,7 @@ static std::shared_ptr<spdlog::logger> create_logger(
         try {
             std::filesystem::create_directories(log_dir);
             // Rotate at midnight; keep log_retain_days worth of files (0 = unlimited).
-            int retain = std::max(0, log_retain_days);
+            int retain = std::clamp(log_retain_days, 0, 65535);
             auto file_sink = std::make_shared<spdlog::sinks::daily_file_sink_mt>(
                 log_dir + "/quantclaw.log",
                 0, 0,          // rotate at 00:00 local time

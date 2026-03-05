@@ -38,7 +38,7 @@ COPY . .
 RUN mkdir -p build && cd build \
     && cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF .. \
     && make -j$(nproc) \
-    && strip build/quantclaw 2>/dev/null || true
+    && (strip /src/build/quantclaw 2>/dev/null || true)
 
 # ── Stage 2: Sidecar (Node.js) build ─────────────────────────────────────────
 # Use the official Node.js image — avoids nodesource installation issues and
@@ -71,7 +71,7 @@ LABEL org.opencontainers.image.title="QuantClaw" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="https://github.com/QuantClaw/QuantClaw" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="Apache-2.0"
 
 ENV DEBIAN_FRONTEND=noninteractive
 

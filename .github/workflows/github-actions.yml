@@ -139,13 +139,14 @@ jobs:
 
     - name: Run clang-tidy
       run: |
-        find src -name '*.cpp' -not -path '*/ui/*' \
-          | xargs -P$(nproc) clang-tidy-14 \
+        find src -name '*.cpp' -not -path '*/ui/*' -print0 \
+          | xargs -0 -P$(nproc) clang-tidy-14 \
               -p build \
               --config-file=.clang-tidy \
               2>&1 | tee /tmp/clang-tidy.log
-        # Treat warnings-as-errors output as failure
-        if grep -q 'error:' /tmp/clang-tidy.log; then
+        # Filter out third-party dependency diagnostics before checking for errors.
+        grep -v '_deps/' /tmp/clang-tidy.log > /tmp/clang-tidy-filtered.log || true
+        if grep -q 'error:' /tmp/clang-tidy-filtered.log; then
           echo "clang-tidy found errors — see log above"
           exit 1
         fi

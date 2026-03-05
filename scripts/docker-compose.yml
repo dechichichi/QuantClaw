@@ -49,14 +49,15 @@ services:
     container_name: quantclaw-test
 
   quantclaw-dev:
+    profiles: ["dev"]
     build:
       context: ..
       dockerfile: scripts/Dockerfile.dev
     image: quantclaw-dev:${QUANTCLAW_VERSION:-0.3.0-alpha}
     container_name: quantclaw-dev
     ports:
-      - "18800:18800"
-      - "18801:18801"
+      - "18802:18800"
+      - "18803:18801"
     volumes:
       - ..:/app            # live source mount for development
       - quantclaw_dev_data:/root/.quantclaw

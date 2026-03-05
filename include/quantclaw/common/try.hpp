@@ -31,7 +31,11 @@ namespace quantclaw::qc_detail {
 
 template <typename T>
 struct unwrap_result {
-    static decltype(auto) get(T&& v) { return *std::forward<T>(v); }
+    // Return by value (not decltype(auto)) to prevent dangling references
+    // when used in GCC statement expressions where the source is destroyed.
+    static auto get(T&& v) -> std::remove_reference_t<decltype(*std::forward<T>(v))> {
+        return *std::forward<T>(v);
+    }
 };
 
 }  // namespace quantclaw::qc_detail

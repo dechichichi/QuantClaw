@@ -34,8 +34,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── 2. Node.js 20 (for sidecar) ──────────────────────────────────────────────
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Download script first (inspect before running in production).
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x -o /tmp/nodesource_setup.sh \
+    && bash /tmp/nodesource_setup.sh \
     && apt-get install -y --no-install-recommends nodejs \
+    && rm -f /tmp/nodesource_setup.sh \
     && rm -rf /var/lib/apt/lists/*
 
 # ── 3. Copy source code ───────────────────────────────────────────────────────

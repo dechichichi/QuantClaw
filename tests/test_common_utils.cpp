@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <gtest/gtest.h>
+#include <vector>
 #include "quantclaw/common/try.hpp"
 #include "quantclaw/common/defer.hpp"
 

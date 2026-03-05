@@ -13,6 +13,7 @@ Checks: '
   performance-*,
   portability-*,
   -readability-*,
+  readability-identifier-naming,
   -cppcoreguidelines-*,
 
   # ── bugprone ──────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 ## Project Overview
 
 QuantClaw is a high-performance C++17 agent gateway server — a reimplementation of
-[OpenClaw](https://github.com/OpenClaw) with the same CLI interface and session/plugin
+[OpenClaw](https://github.com/OpenClaw) with the same CLI and session/plugin
 ecosystem compatibility.
 
 ## Language & Standard
