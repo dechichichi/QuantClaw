@@ -9,9 +9,7 @@
 
 namespace quantclaw::cli {
 
-CLIManager::CLIManager() {
-    // Commands are registered by main() after construction
-}
+CLIManager::CLIManager() = default;
 
 void CLIManager::AddCommand(const Command& command) {
     commands_.push_back(command);
