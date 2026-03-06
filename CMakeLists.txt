@@ -179,7 +179,7 @@ target_compile_definitions(quantclaw_core PUBLIC
     QUANTCLAW_GIT_COMMIT="${QC_GIT_COMMIT}"
 )
 
-target_compile_definitions(quantclaw_core PRIVATE
+target_compile_definitions(quantclaw_core PUBLIC
     CPPHTTPLIB_OPENSSL_SUPPORT
 )
 

@@ -344,6 +344,7 @@ std::vector<SessionMessage> SessionManager::GetHistory(const std::string& sessio
         if (line.empty()) continue;
         try {
             auto j = nlohmann::json::parse(line);
+            if (j.value("type", "message") != "message") continue;
             messages.push_back(SessionMessage::FromJsonl(j));
         } catch (const std::exception& e) {
             logger_->warn("Failed to parse JSONL line: {}", e.what());

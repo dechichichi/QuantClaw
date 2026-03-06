@@ -327,7 +327,7 @@ int OnboardCommands::VerifySetup() {
     std::cout << "  [" << (config_ok ? "✓" : "✗") << "] Config file" << std::endl;
 
     // Check workspace
-    auto workspace = std::filesystem::path(home_str) / ".quantclaw/agents/default/workspace";
+    auto workspace = std::filesystem::path(home_str) / ".quantclaw/agents/main/workspace";
     bool ws_ok = std::filesystem::exists(workspace);
     std::cout << "  [" << (ws_ok ? "✓" : "✗") << "] Workspace directory" << std::endl;
 
@@ -371,7 +371,8 @@ int OnboardCommands::VerifySetup() {
               << (gw_ok ? "" : " (not running — start with: quantclaw gateway start)")
               << std::endl;
 
-    return (config_ok && ws_ok && soul_ok) ? 0 : 1;
+    return (config_ok && ws_ok && soul_ok && memory_ok && identity_ok &&
+            skill_ok && heartbeat_ok && user_ok) ? 0 : 1;
 }
 
 bool OnboardCommands::CreateWorkspaceDirectory() {

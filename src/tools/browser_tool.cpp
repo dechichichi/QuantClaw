@@ -230,6 +230,7 @@ bool BrowserSession::launch_local() {
 
   if (ws_url.empty()) {
     logger_->error("Browser DevTools endpoint not ready on port {}", port);
+    close();
     return false;
   }
 
@@ -237,6 +238,7 @@ bool BrowserSession::launch_local() {
   bool connected = connect_cdp_websocket(ws_url);
   if (!connected) {
     logger_->warn("Port {} may already be in use. Consider setting a unique cdp_debug_port.", port);
+    close();
   }
   return connected;
 }
@@ -252,11 +254,12 @@ bool BrowserSession::connect_remote() {
   if (ws_url.rfind("http", 0) == 0) {
     try {
       // Parse host/port from HTTP URL
+      bool is_https = (ws_url.rfind("https", 0) == 0);
       std::regex http_re(R"(https?://([^:/]+):?(\d*))");
       std::smatch m;
       if (std::regex_search(ws_url, m, http_re)) {
         std::string host = m[1].str();
-        int port = m[2].str().empty() ? 80 : std::stoi(m[2].str());
+        int port = m[2].str().empty() ? (is_https ? 443 : 80) : std::stoi(m[2].str());
         httplib::Client http(host, port);
         http.set_connection_timeout(3, 0);
         auto res = http.Get("/json/version");
@@ -290,7 +293,10 @@ bool BrowserSession::connect_cdp_websocket(const std::string& ws_url) {
         if (msg_id >= 0) {
           {
             std::lock_guard<std::mutex> lock(cdp_mu_);
-            cdp_responses_[msg_id] = j;
+            // Only store response for requests still in-flight
+            if (cdp_pending_ids_.count(msg_id)) {
+              cdp_responses_[msg_id] = j;
+            }
           }
           cdp_cv_.notify_all();
         }
@@ -330,6 +336,12 @@ std::string BrowserSession::cdp_send(const std::string& method,
 
   int id = ++cdp_id_;
   nlohmann::json msg = {{"id", id}, {"method", method}, {"params", params}};
+
+  // Register as pending before sending so the callback can match it
+  {
+    std::lock_guard<std::mutex> pending_lock(cdp_mu_);
+    cdp_pending_ids_.insert(id);
+  }
   cdp_ws_.send(msg.dump());
   logger_->debug("CDP send id={} method={}", id, method);
 
@@ -342,12 +354,14 @@ std::string BrowserSession::cdp_send(const std::string& method,
 
   if (!ok) {
     logger_->warn("CDP timeout for method: {}", method);
-    cdp_responses_.erase(id);  // clean up any late-arriving response
+    cdp_responses_.erase(id);
+    cdp_pending_ids_.erase(id);
     return "{}";
   }
 
   auto resp = cdp_responses_[id];
   cdp_responses_.erase(id);
+  cdp_pending_ids_.erase(id);
 
   if (resp.contains("error")) {
     logger_->warn("CDP error for {}: {}", method, resp["error"].dump());
