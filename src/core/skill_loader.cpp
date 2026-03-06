@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <regex>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <stack>
@@ -603,19 +604,27 @@ nlohmann::json SkillLoader::parse_yaml_frontmatter(const std::string& yaml_str) 
 
             if (arr) {
                 // Detect "- key: value" — start of an object in the array.
-                // A valid YAML key contains only alphanumeric, '_', or '-'
-                // characters (no slashes or spaces), so this won't mis-fire
-                // on plain strings or URLs like "- https://example.com".
+                // YAML requires a space (or tab) after the colon in "key: v",
+                // whereas URLs use "://" and times use "hh:mm" (digit after
+                // colon).  We check both the key characters AND that the
+                // character immediately following the colon is ' ', '\t', or
+                // end-of-string.  This correctly rejects "https://example.com"
+                // and "12:34" while accepting "name: value" and "name:".
                 size_t colon_in_val = val.find(':');
                 bool is_obj_item = false;
                 if (colon_in_val != std::string::npos && colon_in_val > 0) {
-                    is_obj_item = true;
-                    for (size_t i = 0; i < colon_in_val; ++i) {
-                        char c = val[i];
-                        if (!std::isalnum(static_cast<unsigned char>(c)) &&
-                            c != '_' && c != '-') {
-                            is_obj_item = false;
-                            break;
+                    // Colon must be followed by space, tab, or end-of-string.
+                    char after = (colon_in_val + 1 < val.size())
+                                     ? val[colon_in_val + 1] : ' ';
+                    if (after == ' ' || after == '\t') {
+                        is_obj_item = true;
+                        for (size_t i = 0; i < colon_in_val; ++i) {
+                            char c = val[i];
+                            if (!std::isalnum(static_cast<unsigned char>(c)) &&
+                                c != '_' && c != '-') {
+                                is_obj_item = false;
+                                break;
+                            }
                         }
                     }
                 }

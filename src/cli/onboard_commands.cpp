@@ -400,7 +400,7 @@ int OnboardCommands::VerifySetup() {
               << (gw_ok ? "" : " (not running — start with: quantclaw gateway start)")
               << std::endl;
 
-    return (config_ok && ws_ok && soul_ok && memory_ok && identity_ok &&
+    return (config_ok && ws_ok && soul_ok && agents_ok && memory_ok && identity_ok &&
             skill_ok && heartbeat_ok && user_ok) ? 0 : 1;
 }
 

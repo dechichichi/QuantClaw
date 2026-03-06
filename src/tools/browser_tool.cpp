@@ -3,6 +3,7 @@
 
 #include "quantclaw/tools/browser_tool.hpp"
 
+#include "quantclaw/common/parse_util.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -259,14 +260,37 @@ bool BrowserSession::connect_remote() {
       std::smatch m;
       if (std::regex_search(ws_url, m, http_re)) {
         std::string host = m[1].str();
-        int port = m[2].str().empty() ? (is_https ? 443 : 80) : std::stoi(m[2].str());
-        httplib::Client http(host, port);
-        http.set_connection_timeout(3, 0);
-        auto res = http.Get("/json/version");
-        if (res && res->status == 200) {
-          auto j = nlohmann::json::parse(res->body);
-          ws_url = j.value("webSocketDebuggerUrl", ws_url);
+        int port = 80;
+        if (m[2].str().empty()) {
+          port = is_https ? 443 : 80;
+        } else {
+          auto parsed = ParsePort(m[2].str());
+          if (!parsed) {
+            logger_->error("Invalid port in remote CDP URL: {}", ws_url);
+            return false;
+          }
+          port = *parsed;
         }
+        auto fetch_ws = [&](auto& client) {
+          client.set_connection_timeout(3, 0);
+          auto res = client.Get("/json/version");
+          if (res && res->status == 200) {
+            auto j = nlohmann::json::parse(res->body);
+            ws_url = j.value("webSocketDebuggerUrl", ws_url);
+          }
+        };
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+        if (is_https) {
+          httplib::SSLClient ssl_client(host, port);
+          fetch_ws(ssl_client);
+        } else {
+          httplib::Client plain_client(host, port);
+          fetch_ws(plain_client);
+        }
+#else
+        httplib::Client plain_client(host, port);
+        fetch_ws(plain_client);
+#endif
       }
     } catch (...) {}
     // If the URL still starts with "http", we failed to resolve a WS URL

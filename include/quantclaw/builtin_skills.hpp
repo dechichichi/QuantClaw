@@ -16,6 +16,16 @@ struct BuiltinSkill {
     const char* content;  // full SKILL.md content
 };
 
+// Returns the compile-time registry of built-in skills embedded from
+// assets/skills/.  The vector is static and initialised once; callers receive
+// a const reference that remains valid for the lifetime of the process.
+//
+// Each entry contains:
+//   name    – the skill directory name (used as the skill identifier)
+//   content – the full SKILL.md text written to ~/.quantclaw/skills/<name>/
+//
+// Onboarding copies these files to the user workspace, skipping any that
+// already exist so user edits are preserved.
 inline const std::vector<BuiltinSkill>& GetBuiltinSkills() {
     // Raw-string delimiter SKILL avoids conflicts with any character in the
     // markdown content (backticks, quotes, closing parens, arrows, etc.).

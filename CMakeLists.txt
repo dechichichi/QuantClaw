@@ -275,6 +275,7 @@ if(BUILD_TESTS)
         tests/test_context_management.cpp
         tests/test_session_compaction.cpp
         tests/test_message_commands.cpp
+        tests/test_builtin_skills.cpp
     )
 
     add_executable(quantclaw_tests ${TEST_SOURCES})
