@@ -126,6 +126,12 @@ int OnboardCommands::InstallDaemonCommand(const std::vector<std::string>& /*args
     return 1;
 }
 
+// Performs a non-interactive quick setup using sensible defaults.
+// Creates the workspace directory, config file, all standard workspace files
+// (SOUL, MEMORY, SKILL, IDENTITY, HEARTBEAT, USER, AGENTS, TOOLS), and
+// installs built-in skills. Skill installation failures are non-fatal and
+// logged as warnings so that the overall setup can still complete.
+// Returns 0 on success, 1 on fatal error.
 int OnboardCommands::QuickSetupCommand(const std::vector<std::string>& /*args*/) {
     std::cout << "Running quick setup..." << std::endl;
 
@@ -304,6 +310,11 @@ int OnboardCommands::SetupDaemon() {
     return 1;
 }
 
+// Installs built-in skills into ~/.quantclaw/skills/.
+// Each skill is represented by a subdirectory containing a SKILL.md manifest.
+// Already-installed skills (directory + SKILL.md exist) are skipped silently.
+// Returns 0 if at least one skill was installed or all were already present,
+// 1 if every skill installation attempt failed.
 int OnboardCommands::SetupSkills() {
     const char* home = std::getenv("HOME");
     std::string home_str = home ? home : "/tmp";
