@@ -44,14 +44,14 @@ QuantClaw 是 [OpenClaw](https://github.com/openclaw/openclaw) 生态的 C++ 原
 
 ## 📖 文档
 
-完整文档请访问：**[https://alexstocks.github.io/quantclaw.github.io/](https://alexstocks.github.io/quantclaw.github.io/)**
+完整文档请访问：**[https://quantclaw.github.io/](https://quantclaw.github.io/)**
 
 包含：
-- [快速开始指南](https://alexstocks.github.io/quantclaw.github.io/guide/getting-started)
-- [多平台安装说明](https://alexstocks.github.io/quantclaw.github.io/guide/installation)
-- [架构文档](https://alexstocks.github.io/quantclaw.github.io/guide/architecture)
-- [插件开发指南](https://alexstocks.github.io/quantclaw.github.io/guide/plugins)
-- [CLI 参考](https://alexstocks.github.io/quantclaw.github.io/guide/cli-reference)
+- [快速开始指南](https://quantclaw.github.io/guide/getting-started)
+- [多平台安装说明](https://quantclaw.github.io/guide/installation)
+- [架构文档](https://quantclaw.github.io/guide/architecture)
+- [插件开发指南](https://quantclaw.github.io/guide/plugins)
+- [CLI 参考](https://quantclaw.github.io/guide/cli-reference)
 
 ## 快速开始
 

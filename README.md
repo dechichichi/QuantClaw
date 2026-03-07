@@ -44,14 +44,14 @@ QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/op
 
 ## 📖 Documentation
 
-Full documentation available at: **[https://alexstocks.github.io/quantclaw.github.io/](https://alexstocks.github.io/quantclaw.github.io/)**
+Full documentation available at: **[https://quantclaw.github.io/](https://quantclaw.github.io/)**
 
 Includes:
-- [Getting Started Guide](https://alexstocks.github.io/quantclaw.github.io/guide/getting-started)
-- [Installation Instructions](https://alexstocks.github.io/quantclaw.github.io/guide/installation)
-- [Architecture Overview](https://alexstocks.github.io/quantclaw.github.io/guide/architecture)
-- [Plugin Development Guide](https://alexstocks.github.io/quantclaw.github.io/guide/plugins)
-- [CLI Reference](https://alexstocks.github.io/quantclaw.github.io/guide/cli-reference)
+- [Getting Started Guide](https://quantclaw.github.io/guide/getting-started)
+- [Installation Instructions](https://quantclaw.github.io/guide/installation)
+- [Architecture Overview](https://quantclaw.github.io/guide/architecture)
+- [Plugin Development Guide](https://quantclaw.github.io/guide/plugins)
+- [CLI Reference](https://quantclaw.github.io/guide/cli-reference)
 
 ## Quick Start
 
