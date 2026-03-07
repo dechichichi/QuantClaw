@@ -42,6 +42,17 @@ QuantClaw 是 [OpenClaw](https://github.com/openclaw/openclaw) 生态的 C++ 原
 - **MCP 支持**：Model Context Protocol，接入外部工具服务器
 - **文件系统优先**：无数据库依赖，所有数据存储在工作空间目录
 
+## 📖 文档
+
+完整文档请访问：**[https://alexstocks.github.io/quantclaw.github.io/](https://alexstocks.github.io/quantclaw.github.io/)**
+
+包含：
+- [快速开始指南](https://alexstocks.github.io/quantclaw.github.io/guide/getting-started)
+- [多平台安装说明](https://alexstocks.github.io/quantclaw.github.io/guide/installation)
+- [架构文档](https://alexstocks.github.io/quantclaw.github.io/guide/architecture)
+- [插件开发指南](https://alexstocks.github.io/quantclaw.github.io/guide/plugins)
+- [CLI 参考](https://alexstocks.github.io/quantclaw.github.io/guide/cli-reference)
+
 ## 快速开始
 
 ### 1. 编译 QuantClaw

@@ -42,6 +42,17 @@ QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/op
 - **MCP Support**: Model Context Protocol for external tool integration
 - **File System First**: No database dependencies — everything stored in your workspace
 
+## 📖 Documentation
+
+Full documentation available at: **[https://alexstocks.github.io/quantclaw.github.io/](https://alexstocks.github.io/quantclaw.github.io/)**
+
+Includes:
+- [Getting Started Guide](https://alexstocks.github.io/quantclaw.github.io/guide/getting-started)
+- [Installation Instructions](https://alexstocks.github.io/quantclaw.github.io/guide/installation)
+- [Architecture Overview](https://alexstocks.github.io/quantclaw.github.io/guide/architecture)
+- [Plugin Development Guide](https://alexstocks.github.io/quantclaw.github.io/guide/plugins)
+- [CLI Reference](https://alexstocks.github.io/quantclaw.github.io/guide/cli-reference)
+
 ## Quick Start
 
 ### 1. Build QuantClaw
