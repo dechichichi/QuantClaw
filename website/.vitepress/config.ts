@@ -88,8 +88,8 @@ export default defineConfig({
   head: [
     ['meta', { name: 'theme-color', content: '#2d3748' }],
     ['meta', { name: 'og:type', content: 'website' }],
-    ['meta', { name: 'og:image', content: '/QuantClaw/logo.png' }],
-    ['link', { rel: 'icon', href: '/QuantClaw/favicon.ico' }],
+    ['meta', { name: 'og:image', content: '/logo.png' }],
+    ['link', { rel: 'icon', href: '/favicon.ico' }],
   ],
 
   locales: {
