@@ -9,6 +9,15 @@
 </p>
 
 <p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/协议-Apache%202.0-blue.svg" alt="Apache 2.0 协议"></a>
+  <a href="https://github.com/QuantClaw/QuantClaw/actions/workflows/github-actions.yml"><img src="https://github.com/QuantClaw/QuantClaw/actions/workflows/github-actions.yml/badge.svg" alt="CI 构建"></a>
+  <img src="https://img.shields.io/badge/C%2B%2B-17-00599C.svg?logo=cplusplus&logoColor=white" alt="C++17">
+  <img src="https://img.shields.io/badge/单测-923%20通过-brightgreen.svg" alt="923 项单测通过">
+  <img src="https://img.shields.io/badge/平台-Linux%20%7C%20Windows-lightgrey.svg" alt="Linux | Windows">
+  <a href="https://github.com/openclaw/openclaw"><img src="https://img.shields.io/badge/OpenClaw-兼容-orange.svg" alt="OpenClaw 兼容"></a>
+</p>
+
+<p align="center">
   <a href="README.md">English</a>
 </p>
 

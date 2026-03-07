@@ -147,6 +147,10 @@ int OnboardCommands::QuickSetupCommand(const std::vector<std::string>& /*args*/)
         return 1;
     }
 
+    if (SetupSkills() != 0) {
+        logger_->warn("Skills setup had issues during quick setup, but continuing");
+    }
+
     std::cout << "✓ Quick setup complete" << std::endl;
     return 0;
 }
