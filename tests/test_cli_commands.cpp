@@ -225,6 +225,44 @@ TEST_F(AgentCommandsTest, RequestOnlyDashMFlagNoValue) {
     EXPECT_NE(err.find("Usage:"), std::string::npos);
 }
 
+TEST_F(AgentCommandsTest, RequestOnlyFlagsNoMessage) {
+    // Flags without message should fail
+    auto err = capture_stderr([&]() {
+        int ret = agent_cmds_->RequestCommand({"--json", "--timeout", "30"});
+        EXPECT_EQ(ret, 1);
+    });
+    EXPECT_NE(err.find("Usage:"), std::string::npos);
+}
+
+TEST_F(AgentCommandsTest, RequestNoGatewayReturnsError) {
+    // Valid args but no gateway → connection error
+    agent_cmds_->SetGatewayUrl("ws://127.0.0.1:1");  // invalid port
+    auto err = capture_stderr([&]() {
+        int ret = agent_cmds_->RequestCommand({"-m", "hello"});
+        EXPECT_EQ(ret, 1);
+    });
+    EXPECT_NE(err.find("Cannot connect to gateway"), std::string::npos);
+}
+
+TEST_F(AgentCommandsTest, RequestLongMessageFlag) {
+    // --message long form should also fail without gateway
+    agent_cmds_->SetGatewayUrl("ws://127.0.0.1:1");
+    auto err = capture_stderr([&]() {
+        int ret = agent_cmds_->RequestCommand({"--message", "test msg"});
+        EXPECT_EQ(ret, 1);
+    });
+    EXPECT_NE(err.find("Cannot connect to gateway"), std::string::npos);
+}
+
+TEST_F(AgentCommandsTest, StopNoGatewayReturnsError) {
+    agent_cmds_->SetGatewayUrl("ws://127.0.0.1:1");
+    auto err = capture_stderr([&]() {
+        int ret = agent_cmds_->StopCommand({});
+        EXPECT_EQ(ret, 1);
+    });
+    EXPECT_NE(err.find("Cannot connect to gateway"), std::string::npos);
+}
+
 // ========== SessionCommands tests ==========
 
 class SessionCommandsTest : public ::testing::Test {

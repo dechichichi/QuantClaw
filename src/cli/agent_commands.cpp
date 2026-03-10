@@ -4,6 +4,7 @@
 #include "quantclaw/cli/agent_commands.hpp"
 #include "quantclaw/gateway/gateway_client.hpp"
 #include "quantclaw/gateway/protocol.hpp"
+#include <chrono>
 #include <iostream>
 
 namespace quantclaw::cli {
@@ -17,6 +18,7 @@ int AgentCommands::RequestCommand(const std::vector<std::string>& args) {
     std::string session_key = "agent:main:main";
     std::string model;
     bool json_output = false;
+    bool no_session = false;
     int timeout_ms = 120000;
 
     for (size_t i = 0; i < args.size(); ++i) {
@@ -31,9 +33,17 @@ int AgentCommands::RequestCommand(const std::vector<std::string>& args) {
             timeout_ms = std::stoi(args[++i]) * 1000;
         } else if (args[i] == "--json") {
             json_output = true;
+        } else if (args[i] == "--no-session") {
+            no_session = true;
         } else if (args[i][0] != '-' && message.empty()) {
             message = args[i];
         }
+    }
+
+    // --no-session: generate ephemeral session key so no history persists
+    if (no_session) {
+        session_key = "ephemeral:" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count());
     }
 
     if (message.empty()) {
