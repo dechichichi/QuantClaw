@@ -48,8 +48,10 @@ int AgentCommands::RequestCommand(const std::vector<std::string>& args) {
 
   // --no-session: generate ephemeral session key so no history persists
   if (no_session) {
-    session_key = "ephemeral:" + std::to_string(
-        std::chrono::steady_clock::now().time_since_epoch().count());
+    session_key =
+        "ephemeral:" +
+        std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count());
   }
 
   if (message.empty()) {
