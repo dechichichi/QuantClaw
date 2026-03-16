@@ -34,7 +34,7 @@ class SkillLoaderTest : public ::testing::Test {
   void write_skill(const std::string& name, const std::string& content) {
     auto dir = test_dir_ / name;
     std::filesystem::create_directories(dir);
-    std::ofstream f(dir / "SKILL.md");
+    std::ofstream f(dir / "SKILL.md", std::ios::binary);
     f << content;
     f.close();
   }
@@ -417,6 +417,7 @@ description: Get weather forecast
 emoji: "⛅"
 homepage: "https://weather.example.com"
 skillKey: "weather-v2"
+always: true
 requires:
   bins:
     - curl
