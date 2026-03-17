@@ -97,7 +97,6 @@ class ApiRoutesTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
-    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     // HTTP API server
@@ -376,7 +375,6 @@ class ApiRoutesAuthTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
-    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     http_server_ =
@@ -495,7 +493,6 @@ class ApiRoutesReloadTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
-    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     http_server_ =
@@ -606,7 +603,6 @@ class ApiGatewayInfoTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
-    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     http_server_ =

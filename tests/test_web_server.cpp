@@ -39,7 +39,6 @@ class WebServerTest : public ::testing::Test {
 TEST_F(WebServerTest, HealthEndpoint) {
   int port = find_free_port();
   server_ = std::make_unique<quantclaw::web::WebServer>(port, logger_);
-  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
       << "Server not ready on port " << port;
@@ -64,7 +63,6 @@ TEST_F(WebServerTest, CustomGetRoute) {
                       return R"({"result":"hello"})";
                     });
 
-  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
       << "Server not ready on port " << port;
@@ -90,7 +88,6 @@ TEST_F(WebServerTest, CustomPostRoute) {
                       return nlohmann::json({{"echo", j["msg"]}}).dump();
                     });
 
-  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
       << "Server not ready on port " << port;
@@ -109,7 +106,6 @@ TEST_F(WebServerTest, StartAndStop) {
   int port = find_free_port();
   server_ = std::make_unique<quantclaw::web::WebServer>(port, logger_);
 
-  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
       << "Server not ready on port " << port;
@@ -135,7 +131,6 @@ TEST_F(WebServerTest, StartAndStop) {
 TEST_F(WebServerTest, ResponseContentType) {
   int port = find_free_port();
   server_ = std::make_unique<quantclaw::web::WebServer>(port, logger_);
-  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
       << "Server not ready on port " << port;

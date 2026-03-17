@@ -172,7 +172,6 @@ class AgentCommandsIntegrationTest : public ::testing::Test {
     quantclaw::gateway::register_rpc_handlers(*server_, session_manager_,
                                               agent_loop_, prompt_builder_,
                                               tool_registry_, config_, logger_);
-    quantclaw::test::ReleaseHeldPorts();
     server_->Start();
 
     // Wait until the server actually accepts connections instead of a
@@ -411,7 +410,6 @@ TEST_F(AgentCommandsIntegrationTest, AuthTokenMismatchReturnsError) {
   quantclaw::gateway::register_rpc_handlers(
       *server_, session_manager_, agent_loop_, prompt_builder_, tool_registry_,
       auth_config, logger_);
-  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   ASSERT_TRUE(quantclaw::test::WaitForServerReady(auth_port, 5000))
       << "Server not ready on port " << auth_port;

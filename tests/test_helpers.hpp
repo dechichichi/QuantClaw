@@ -56,11 +56,16 @@ inline std::vector<socket_t>& held_sockets() {
 /// Allocates an ephemeral TCP port that is safe for parallel ctest use.
 ///
 /// Binds to port 0 so the OS assigns a free port, then **keeps the socket
-/// open** so no other process can receive the same port from the OS.
-/// Call ReleaseHeldPorts() just before server->Start() to free the socket
-/// so the server can bind.  Because the probe socket was never connected
-/// or listened on, closing it does not enter TIME_WAIT and the port is
-/// immediately available.
+/// bound** for the lifetime of the process.  This prevents other parallel
+/// ctest processes from receiving the same port via their own bind(port=0).
+///
+/// The server (IXWebSocket / cpp-httplib) sets SO_REUSEADDR before its own
+/// bind(), which allows it to bind to the same port even though our probe
+/// socket still holds it.  The probe socket is only bound (never listened
+/// on), so the server's listen() succeeds and the server receives all
+/// incoming connections.
+///
+/// The held sockets are automatically closed when the process exits.
 ///
 /// @return A free port number in [1024, 65535], or 0 on failure.
 inline int FindFreePort() {
@@ -92,26 +97,13 @@ inline int FindFreePort() {
 
     int port = ntohs(addr.sin_port);
 
-    // Keep the socket bound so the OS won't hand this port to another
-    // parallel test process.
+    // Keep the socket bound for the lifetime of the process so the OS
+    // won't hand this port to another parallel test process.  The test
+    // server uses SO_REUSEADDR and can bind on top of this socket.
     detail::held_sockets().push_back(sock);
     return port;
   }
   return 0;
-}
-
-/// Releases all sockets held by FindFreePort().
-///
-/// Call this right before server->Start() so the port becomes available
-/// for the server to bind.  Since the probe sockets were only bound
-/// (never connected or listened on), closing them does not enter
-/// TIME_WAIT — the port is immediately reusable.
-inline void ReleaseHeldPorts() {
-  std::lock_guard<std::mutex> lock(detail::held_mutex());
-  for (socket_t s : detail::held_sockets()) {
-    detail::close_socket(s);
-  }
-  detail::held_sockets().clear();
 }
 
 /// Creates a temporary test directory that is unique to the current process.

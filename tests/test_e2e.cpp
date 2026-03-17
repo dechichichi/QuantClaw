@@ -155,7 +155,6 @@ class E2ETest : public ::testing::Test {
                                               tool_registry_, config_, logger_);
 
     // Start server
-    quantclaw::test::ReleaseHeldPorts();
     server_->Start();
     ASSERT_TRUE(quantclaw::test::WaitForServerReady(port_, 5000))
         << "Server not ready on port " << port_;
@@ -437,7 +436,6 @@ class E2EAuthTest : public ::testing::Test {
                                               agent_loop_, prompt_builder_,
                                               tool_registry_, config_, logger_);
 
-    quantclaw::test::ReleaseHeldPorts();
     server_->Start();
     ASSERT_TRUE(quantclaw::test::WaitForServerReady(port_, 5000))
         << "Server not ready on port " << port_;
