@@ -97,6 +97,7 @@ class ApiRoutesTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
+    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     // HTTP API server
@@ -109,7 +110,8 @@ class ApiRoutesTest : public ::testing::Test {
         tool_registry_, config_, *gateway_server_, logger_);
 
     http_server_->Start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    ASSERT_TRUE(quantclaw::test::WaitForServerReady(http_port_, 5000))
+        << "HTTP server not ready on port " << http_port_;
   }
 
   void TearDown() override {
@@ -374,6 +376,7 @@ class ApiRoutesAuthTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
+    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     http_server_ =
@@ -385,7 +388,8 @@ class ApiRoutesAuthTest : public ::testing::Test {
         tool_registry_, config_, *gateway_server_, logger_);
 
     http_server_->Start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    ASSERT_TRUE(quantclaw::test::WaitForServerReady(http_port_, 5000))
+        << "HTTP server not ready on port " << http_port_;
   }
 
   void TearDown() override {
@@ -491,6 +495,7 @@ class ApiRoutesReloadTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
+    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     http_server_ =
@@ -502,7 +507,8 @@ class ApiRoutesReloadTest : public ::testing::Test {
         tool_registry_, config_, *gateway_server_, logger_, reload_fn_);
 
     http_server_->Start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    ASSERT_TRUE(quantclaw::test::WaitForServerReady(http_port_, 5000))
+        << "HTTP server not ready on port " << http_port_;
   }
 
   void TearDown() override {
@@ -600,6 +606,7 @@ class ApiGatewayInfoTest : public ::testing::Test {
     gateway_server_ =
         std::make_unique<quantclaw::gateway::GatewayServer>(gw_port_, logger_);
     gateway_server_->SetAuth("none", "");
+    quantclaw::test::ReleaseHeldPorts();
     gateway_server_->Start();
 
     http_server_ =
@@ -624,7 +631,8 @@ class ApiGatewayInfoTest : public ::testing::Test {
         });
 
     http_server_->Start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    ASSERT_TRUE(quantclaw::test::WaitForServerReady(http_port_, 5000))
+        << "HTTP server not ready on port " << http_port_;
   }
 
   void TearDown() override {

@@ -8,9 +8,9 @@
 #include <cstring>
 #include <filesystem>
 #include <mutex>
-#include <set>
 #include <string>
 #include <thread>
+#include <vector>
 
 #ifdef _WIN32
 #include <process.h>
@@ -30,31 +30,41 @@ static constexpr socket_t kInvalidSocket = -1;
 
 namespace quantclaw::test {
 
-/// Allocates an ephemeral TCP port that is unique within this process.
+namespace detail {
+
+inline void close_socket(socket_t s) {
+#ifdef _WIN32
+  closesocket(s);
+#else
+  close(s);
+#endif
+}
+
+// Process-wide list of sockets held by FindFreePort().
+// Guarded by held_mutex().
+inline std::mutex& held_mutex() {
+  static std::mutex mu;
+  return mu;
+}
+inline std::vector<socket_t>& held_sockets() {
+  static std::vector<socket_t> v;
+  return v;
+}
+
+}  // namespace detail
+
+/// Allocates an ephemeral TCP port that is safe for parallel ctest use.
 ///
-/// Binds to port 0 so the OS assigns a free port, then immediately closes
-/// the socket and records the port in a process-wide set so the same port
-/// is never returned to a second caller. Up to 100 attempts are made to
-/// find a port not already reserved by a prior call in this process.
-///
-/// This prevents spurious EADDRINUSE failures when CTest runs tests in
-/// parallel: the brief window between close() and the server's own bind()
-/// is enough for a race on a loaded CI runner without this deduplication.
+/// Binds to port 0 so the OS assigns a free port, then **keeps the socket
+/// open** so no other process can receive the same port from the OS.
+/// Call ReleaseHeldPorts() just before server->Start() to free the socket
+/// so the server can bind.  Because the probe socket was never connected
+/// or listened on, closing it does not enter TIME_WAIT and the port is
+/// immediately available.
 ///
 /// @return A free port number in [1024, 65535], or 0 on failure.
 inline int FindFreePort() {
-  static std::mutex port_mutex;
-  static std::set<int> allocated_ports;
-
-  std::lock_guard<std::mutex> lock(port_mutex);
-
-  auto close_sock = [](socket_t s) {
-#ifdef _WIN32
-    closesocket(s);
-#else
-    close(s);
-#endif
-  };
+  std::lock_guard<std::mutex> lock(detail::held_mutex());
 
   for (int attempt = 0; attempt < 100; ++attempt) {
     socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -69,27 +79,39 @@ inline int FindFreePort() {
 
     if (bind(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) <
         0) {
-      close_sock(sock);
+      detail::close_socket(sock);
       continue;
     }
 
     socklen_t len = sizeof(addr);
     if (getsockname(sock, reinterpret_cast<struct sockaddr*>(&addr), &len) <
         0) {
-      close_sock(sock);
+      detail::close_socket(sock);
       continue;
     }
 
     int port = ntohs(addr.sin_port);
-    close_sock(sock);
 
-    if (allocated_ports.find(port) == allocated_ports.end()) {
-      allocated_ports.insert(port);
-      return port;
-    }
-    // Port already reserved by this process — retry for a different one.
+    // Keep the socket bound so the OS won't hand this port to another
+    // parallel test process.
+    detail::held_sockets().push_back(sock);
+    return port;
   }
   return 0;
+}
+
+/// Releases all sockets held by FindFreePort().
+///
+/// Call this right before server->Start() so the port becomes available
+/// for the server to bind.  Since the probe sockets were only bound
+/// (never connected or listened on), closing them does not enter
+/// TIME_WAIT — the port is immediately reusable.
+inline void ReleaseHeldPorts() {
+  std::lock_guard<std::mutex> lock(detail::held_mutex());
+  for (socket_t s : detail::held_sockets()) {
+    detail::close_socket(s);
+  }
+  detail::held_sockets().clear();
 }
 
 /// Creates a temporary test directory that is unique to the current process.
