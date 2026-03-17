@@ -321,10 +321,17 @@ else
     fail "C5.4 dashboard (prints URL)" "output: $OUT"
 fi
 
-# C5.5 logs (non-blocking — just check it doesn't crash immediately)
-OUT=$(timeout 3 bash -c "HOME='$TEST_HOME' '$BINARY' logs" 2>&1 || true)
-# logs may return empty if no entries, or stream entries — either is fine
-pass "C5.5 logs (no crash)"
+# C5.5 logs — when no log file exists, should exit within 3s (not hang) and
+# produce recognisable output; exit code 124 means the command hung (fail).
+LOGS_EC=0
+OUT=$(timeout 3 bash -c "HOME='$TEST_HOME' '$BINARY' logs" 2>&1) || LOGS_EC=$?
+if [ "$LOGS_EC" -eq 124 ]; then
+    fail "C5.5 logs (hung — timed out after 3s)" ""
+elif echo "$OUT" | grep -qi "no log file\|log\|journal\|gateway\|cannot open\|error"; then
+    pass "C5.5 logs (graceful when no log file)"
+else
+    pass "C5.5 logs (completed, exit $LOGS_EC)"
+fi
 
 # ==========================================================
 # Phase 6: gateway subcommands
@@ -443,9 +450,12 @@ fi
 qc sessions reset "$SESSION_KEY" >/dev/null 2>&1
 pass "C7.3 sessions reset (no crash)"
 
-# C7.4 sessions delete
-qc sessions delete "$SESSION_KEY" >/dev/null 2>&1
-pass "C7.4 sessions delete (no crash)"
+# C7.4 sessions delete (nonexistent key — idempotent, should not crash)
+if qc sessions delete "nonexistent:$$:key" >/dev/null 2>&1; then
+    pass "C7.4 sessions delete nonexistent (no crash)"
+else
+    fail "C7.4 sessions delete nonexistent (no crash)" "exit code: $?"
+fi
 
 # C7.5 gateway call — sessions.list
 OUT=$(qc gateway call sessions.list 2>&1)

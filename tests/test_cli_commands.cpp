@@ -324,6 +324,22 @@ TEST_F(SessionCommandsTest, HistoryOnlyFlagsNoKey) {
   EXPECT_NE(err.find("session key required"), std::string::npos);
 }
 
+TEST_F(SessionCommandsTest, DeleteNoSessionKeyReturnsError) {
+  auto err = capture_stderr([&]() {
+    int ret = session_cmds_->DeleteCommand({});
+    EXPECT_EQ(ret, 1);
+  });
+  EXPECT_NE(err.find("session key required"), std::string::npos);
+}
+
+TEST_F(SessionCommandsTest, ResetNoSessionKeyReturnsError) {
+  auto err = capture_stderr([&]() {
+    int ret = session_cmds_->ResetCommand({});
+    EXPECT_EQ(ret, 1);
+  });
+  EXPECT_NE(err.find("session key required"), std::string::npos);
+}
+
 // ========== GatewayCommands construction ==========
 
 class GatewayCommandsTest : public ::testing::Test {

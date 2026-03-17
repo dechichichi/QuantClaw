@@ -395,14 +395,14 @@ std::vector<SessionInfo> SessionManager::ListSessions() const {
   return result;
 }
 
-void SessionManager::DeleteSession(const std::string& session_key) {
+bool SessionManager::DeleteSession(const std::string& session_key) {
   std::unique_lock<std::shared_mutex> lock(mutex_);
 
   std::string normalized = NormalizeSessionKey(session_key);
   auto it = store_.find(normalized);
   if (it == store_.end()) {
     logger_->warn("Cannot delete non-existent session: {}", normalized);
-    return;
+    return false;
   }
 
   // Remove transcript file
@@ -415,6 +415,7 @@ void SessionManager::DeleteSession(const std::string& session_key) {
   SaveStore();
 
   logger_->info("Deleted session: {}", normalized);
+  return true;
 }
 
 void SessionManager::UpdateDisplayName(const std::string& session_key,

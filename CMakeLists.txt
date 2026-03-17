@@ -92,7 +92,13 @@ if(NOT httplib_FOUND)
         set(fetchcontent_included TRUE)
     endif()
     set(HTTPLIB_REQUIRE_OPENSSL ON CACHE BOOL "" FORCE)
-    set(HTTPLIB_REQUIRE_ZLIB ON CACHE BOOL "" FORCE)
+    # Only require zlib if available; avoids link failure on minimal systems
+    find_package(ZLIB QUIET)
+    if(ZLIB_FOUND)
+        set(HTTPLIB_REQUIRE_ZLIB ON CACHE BOOL "" FORCE)
+    else()
+        set(HTTPLIB_REQUIRE_ZLIB OFF CACHE BOOL "" FORCE)
+    endif()
     FetchContent_Declare(
         httplib
         GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
@@ -214,16 +220,11 @@ target_include_directories(quantclaw_core
 )
 
 target_compile_definitions(quantclaw_core PUBLIC
-        NOMINMAX
-        _CRT_SECURE_NO_WARNINGS
+    NOMINMAX
+    _CRT_SECURE_NO_WARNINGS
     QUANTCLAW_VERSION="${PROJECT_VERSION}"
     QUANTCLAW_BUILD_DATE="${QC_BUILD_DATE}"
     QUANTCLAW_GIT_COMMIT="${QC_GIT_COMMIT}"
-)
-
-target_compile_definitions(quantclaw_core PUBLIC
-        NOMINMAX
-        _CRT_SECURE_NO_WARNINGS
     CPPHTTPLIB_OPENSSL_SUPPORT
 )
 

@@ -49,6 +49,7 @@ TEST_F(GatewayTest, ServerStartStop) {
   server_ = std::make_unique<GatewayServer>(port, logger_);
 
   EXPECT_FALSE(server_->IsRunning());
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   EXPECT_TRUE(server_->IsRunning());
   EXPECT_EQ(server_->GetPort(), port);
@@ -61,6 +62,7 @@ TEST_F(GatewayTest, ServerStartStop) {
 TEST_F(GatewayTest, UptimeIncreases) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
 
   EXPECT_GE(server_->GetUptimeSeconds(), 0);
@@ -100,8 +102,10 @@ TEST_F(GatewayTest, ClientConnectAndCall) {
         return {{"echo", params.value("msg", "")}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Create client
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
@@ -128,8 +132,10 @@ TEST_F(GatewayTest, HealthRpc) {
         return {{"status", "ok"}, {"version", "0.2.0"}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -145,8 +151,10 @@ TEST_F(GatewayTest, HealthRpc) {
 TEST_F(GatewayTest, UnknownMethodReturnsError) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -169,8 +177,10 @@ TEST_F(GatewayTest, MultipleClients) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
 
@@ -198,8 +208,10 @@ TEST_F(GatewayTest, MultipleClients) {
 TEST_F(GatewayTest, BroadcastEvent) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -244,8 +256,10 @@ TEST_F(GatewayTest, AuthModeNoneAllowsAll) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -268,8 +282,10 @@ TEST_F(GatewayTest, AuthTokenValidationSuccess) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Client with correct token
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
@@ -293,8 +309,10 @@ TEST_F(GatewayTest, AuthTokenValidationFailure) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Client with wrong token — hello should fail, subsequent RPC should fail
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
@@ -329,8 +347,10 @@ TEST_F(GatewayTest, BuildSnapshotContainsExpectedFields) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
   server_->SetAuth("none", "");
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   auto snapshot = server_->BuildSnapshot();
 
@@ -350,8 +370,10 @@ TEST_F(GatewayTest, HelloResponseContainsSnapshot) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
   server_->SetAuth("none", "");
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Connect a client — the hello-ok response should contain a snapshot
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
@@ -365,6 +387,125 @@ TEST_F(GatewayTest, HelloResponseContainsSnapshot) {
   EXPECT_GE(snapshot["presence"].size(), 1u);  // at least our client
 
   client.Disconnect();
+}
+
+// --- Regression: issue #51 — use-after-free in Send*/Broadcast ---
+//
+// ws_connections_ previously stored raw ix::WebSocket* pointers. After
+// releasing connections_mutex_, a concurrent client disconnect could cause
+// ixwebsocket to destroy the WebSocket before BroadcastEvent / SendResponseTo
+// called send() on the snapshot pointer (use-after-free / dangling pointer).
+//
+// The fix stores shared_ptr<ix::WebSocket> snapshots so the object stays alive
+// for the duration of the send, regardless of concurrent disconnects.
+
+TEST_F(GatewayTest, BroadcastDuringConcurrentDisconnect) {
+  // Multiple clients connect, then disconnect concurrently while the server
+  // broadcasts events. With raw pointers this could crash; with shared_ptr
+  // snapshots the sends complete safely (or are silently dropped for already-
+  // disconnected clients).
+  int port = find_free_port();
+  server_ = std::make_unique<GatewayServer>(port, logger_);
+  quantclaw::test::ReleaseHeldPorts();
+  server_->Start();
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
+
+  std::string url = "ws://127.0.0.1:" + std::to_string(port);
+
+  // Kept low so the test completes in reasonable time even under sanitizer
+  // builds (asan/tsan add 5-20x overhead). Enough iterations to exercise the
+  // concurrent-disconnect race window without overwhelming ixwebsocket's
+  // internal GC thread.
+  constexpr int kClients = 3;
+  constexpr int kIterations = 5;
+
+  for (int i = 0; i < kIterations; ++i) {
+    // Connect a batch of clients
+    std::vector<std::unique_ptr<GatewayClient>> clients;
+    clients.reserve(kClients);
+    for (int c = 0; c < kClients; ++c) {
+      auto cl = std::make_unique<GatewayClient>(url, "", logger_);
+      if (cl->Connect(2000)) {
+        clients.push_back(std::move(cl));
+      }
+    }
+
+    // Kick off disconnects on a background thread while broadcasting
+    std::thread disconnector([&] {
+      for (auto& cl : clients) {
+        cl->Disconnect();
+      }
+    });
+
+    // Broadcast while clients are disconnecting concurrently
+    for (int b = 0; b < 5; ++b) {
+      server_->BroadcastEvent("test.race", {{"iteration", i}, {"burst", b}});
+    }
+
+    disconnector.join();
+
+    // Let ixwebsocket's GC thread purge the finished connection threads
+    // before the next batch. Under sanitizer builds this window is critical.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+
+  // Server must still be running and usable after all the concurrent activity
+  EXPECT_TRUE(server_->IsRunning());
+}
+
+TEST_F(GatewayTest, SendToDisconnectedClient) {
+  // Capture a connection ID via an RPC handler, then disconnect the client and
+  // call SendResponseTo / SendEventTo with the stale ID. The server must not
+  // crash or deadlock — the stale entry is gone from connections_ so both
+  // methods should return early without touching any WebSocket pointer.
+  int port = find_free_port();
+  server_ = std::make_unique<GatewayServer>(port, logger_);
+
+  std::string captured_conn_id;
+  std::mutex id_mu;
+
+  server_->RegisterHandler(
+      "test.capture_id",
+      [&](const nlohmann::json&, ClientConnection& conn) -> nlohmann::json {
+        std::lock_guard<std::mutex> lk(id_mu);
+        captured_conn_id = conn.connection_id;
+        return {{"ok", true}};
+      });
+
+  quantclaw::test::ReleaseHeldPorts();
+  server_->Start();
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
+
+  std::string url = "ws://127.0.0.1:" + std::to_string(port);
+  GatewayClient client(url, "", logger_);
+  ASSERT_TRUE(client.Connect(5000));
+
+  // Make an RPC call so the handler captures the connection ID
+  auto resp = client.Call("test.capture_id", {}, 5000);
+  EXPECT_TRUE(resp.value("ok", false));
+
+  std::string conn_id;
+  {
+    std::lock_guard<std::mutex> lk(id_mu);
+    conn_id = captured_conn_id;
+  }
+  ASSERT_FALSE(conn_id.empty());
+
+  // Disconnect the client — ws_connections_ entry is now erased
+  client.Disconnect();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  // Both send methods must be safe to call with a stale / unknown connection ID
+  RpcEvent evt;
+  evt.event = "test.stale";
+  evt.payload = {{"msg", "should be dropped"}};
+  EXPECT_NO_FATAL_FAILURE(server_->SendEventTo(conn_id, evt));
+  EXPECT_NO_FATAL_FAILURE(
+      server_->SendResponseTo(conn_id, "req-stale", true, {{"ok", true}}));
+
+  EXPECT_TRUE(server_->IsRunning());
 }
 
 // --- Client to unreachable server ---

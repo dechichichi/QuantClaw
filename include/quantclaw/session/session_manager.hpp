@@ -149,7 +149,7 @@ class SessionManager : public Noncopyable {
   std::vector<SessionInfo> ListSessions() const;
 
   // Delete a session entirely
-  void DeleteSession(const std::string& session_key);
+  bool DeleteSession(const std::string& session_key);
 
   // Reset a session (archive old, create new session ID)
   void ResetSession(const std::string& session_key);
