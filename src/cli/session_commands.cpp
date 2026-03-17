@@ -126,8 +126,25 @@ int SessionCommands::HistoryCommand(const std::vector<std::string>& args) {
     } else if (result.is_array()) {
       for (const auto& msg : result) {
         std::string role = msg.value("role", "unknown");
-        std::string content = msg.value("content", "");
         std::string ts = msg.value("timestamp", "");
+
+        // content may be a string or an array of ContentBlocks
+        std::string content;
+        if (msg.contains("content")) {
+          const auto& c = msg["content"];
+          if (c.is_string()) {
+            content = c.get<std::string>();
+          } else if (c.is_array()) {
+            for (const auto& block : c) {
+              if (block.value("type", "") == "text") {
+                if (!content.empty()) {
+                  content += "\n";
+                }
+                content += block.value("text", "");
+              }
+            }
+          }
+        }
 
         if (role == "user") {
           std::cout << "\033[36m[" << ts << "] User:\033[0m " << content

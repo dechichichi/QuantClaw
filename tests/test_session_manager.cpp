@@ -261,8 +261,17 @@ TEST_F(SessionManagerTest, DeleteSession) {
 }
 
 TEST_F(SessionManagerTest, DeleteNonexistentSession) {
-  // Should not crash
-  session_mgr_->DeleteSession("nonexistent:session");
+  // Should not crash and should return false
+  bool deleted = session_mgr_->DeleteSession("nonexistent:session");
+  EXPECT_FALSE(deleted);
+  auto sessions = session_mgr_->ListSessions();
+  EXPECT_TRUE(sessions.empty());
+}
+
+TEST_F(SessionManagerTest, DeleteExistingSessionReturnsTrue) {
+  session_mgr_->GetOrCreate("test:delete:ret");
+  bool deleted = session_mgr_->DeleteSession("test:delete:ret");
+  EXPECT_TRUE(deleted);
   auto sessions = session_mgr_->ListSessions();
   EXPECT_TRUE(sessions.empty());
 }

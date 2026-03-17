@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <deque>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -22,6 +24,7 @@
 #include "quantclaw/core/memory_search.hpp"
 #include "quantclaw/core/skill_loader.hpp"
 #include "quantclaw/gateway/gateway_client.hpp"
+#include "quantclaw/platform/process.hpp"
 
 // Bring port/URL constants into scope (avoids quantclaw:: prefix for literals)
 using quantclaw::kDefaultGatewayPort;
@@ -1289,35 +1292,75 @@ int main(int argc, char* argv[]) {
   // --- logs command ---
   cli.AddCommand(
       {"logs", "View gateway logs", {}, [](int argc, char** argv) -> int {
-         const char* home = std::getenv("HOME");
-         std::string home_str = home ? home : "/tmp";
-         auto log_dir = std::filesystem::path(home_str) / ".quantclaw/logs";
+         auto home_dir = quantclaw::platform::home_directory();
+         auto log_dir = std::filesystem::path(home_dir) / ".quantclaw" / "logs";
 
          int lines = 50;
          bool follow = false;
          for (int i = 1; i < argc; ++i) {
            std::string arg = argv[i];
-           if (arg == "-f" || arg == "--follow")
+           if (arg == "-f" || arg == "--follow") {
              follow = true;
-           if (arg == "-n" && i + 1 < argc)
+           }
+           if (arg == "-n" && i + 1 < argc) {
              lines = std::stoi(argv[++i]);
+           }
          }
 
          auto log_file = log_dir / "gateway.log";
          if (!std::filesystem::exists(log_file)) {
-           // Try journalctl
+#ifdef _WIN32
+           std::cerr << "No log file found at: " << log_file.string()
+                     << std::endl;
+           std::cerr << "Start the gateway first: quantclaw gateway run"
+                     << std::endl;
+           return 1;
+#else
+           // Try journalctl on Linux
            std::string cmd =
-               "journalctl --user -u quantclaw -n " + std::to_string(lines);
-           if (follow)
+               "journalctl --user -u quantclaw -n " +
+               std::to_string(lines);
+           if (follow) {
              cmd += " -f";
+           }
            cmd += " --no-pager 2>/dev/null";
            return std::system(cmd.c_str());
+#endif
          }
 
+#ifdef _WIN32
+         // Windows: read the file directly (no tail)
+         if (follow) {
+           std::cerr << "Follow mode (-f) is not supported "
+                        "on Windows"
+                     << std::endl;
+           return 1;
+         }
+         std::ifstream f(log_file);
+         if (!f.is_open()) {
+           std::cerr << "Cannot open: " << log_file.string() << std::endl;
+           return 1;
+         }
+         std::deque<std::string> tail_lines;
+         std::string line;
+         while (std::getline(f, line)) {
+           tail_lines.push_back(line);
+           if (static_cast<int>(tail_lines.size()) > lines) {
+             tail_lines.pop_front();
+           }
+         }
+         for (const auto& l : tail_lines) {
+           std::cout << l << "\n";
+         }
+         return 0;
+#else
          std::string cmd =
-             follow ? "tail -f " : "tail -n " + std::to_string(lines) + " ";
+             follow
+                 ? "tail -f "
+                 : "tail -n " + std::to_string(lines) + " ";
          cmd += log_file.string();
          return std::system(cmd.c_str());
+#endif
        }});
 
   // --- plugins command ---

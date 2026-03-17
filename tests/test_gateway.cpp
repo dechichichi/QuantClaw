@@ -49,6 +49,7 @@ TEST_F(GatewayTest, ServerStartStop) {
   server_ = std::make_unique<GatewayServer>(port, logger_);
 
   EXPECT_FALSE(server_->IsRunning());
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
   EXPECT_TRUE(server_->IsRunning());
   EXPECT_EQ(server_->GetPort(), port);
@@ -61,6 +62,7 @@ TEST_F(GatewayTest, ServerStartStop) {
 TEST_F(GatewayTest, UptimeIncreases) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
 
   EXPECT_GE(server_->GetUptimeSeconds(), 0);
@@ -100,8 +102,10 @@ TEST_F(GatewayTest, ClientConnectAndCall) {
         return {{"echo", params.value("msg", "")}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Create client
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
@@ -128,8 +132,10 @@ TEST_F(GatewayTest, HealthRpc) {
         return {{"status", "ok"}, {"version", "0.2.0"}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -145,8 +151,10 @@ TEST_F(GatewayTest, HealthRpc) {
 TEST_F(GatewayTest, UnknownMethodReturnsError) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -169,8 +177,10 @@ TEST_F(GatewayTest, MultipleClients) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
 
@@ -198,8 +208,10 @@ TEST_F(GatewayTest, MultipleClients) {
 TEST_F(GatewayTest, BroadcastEvent) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -244,8 +256,10 @@ TEST_F(GatewayTest, AuthModeNoneAllowsAll) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
   GatewayClient client(url, "", logger_);
@@ -268,8 +282,10 @@ TEST_F(GatewayTest, AuthTokenValidationSuccess) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Client with correct token
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
@@ -293,8 +309,10 @@ TEST_F(GatewayTest, AuthTokenValidationFailure) {
         return {{"pong", true}};
       });
 
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Client with wrong token — hello should fail, subsequent RPC should fail
   std::string url = "ws://127.0.0.1:" + std::to_string(port);
@@ -329,8 +347,10 @@ TEST_F(GatewayTest, BuildSnapshotContainsExpectedFields) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
   server_->SetAuth("none", "");
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   auto snapshot = server_->BuildSnapshot();
 
@@ -350,8 +370,10 @@ TEST_F(GatewayTest, HelloResponseContainsSnapshot) {
   int port = find_free_port();
   server_ = std::make_unique<GatewayServer>(port, logger_);
   server_->SetAuth("none", "");
+  quantclaw::test::ReleaseHeldPorts();
   server_->Start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  ASSERT_TRUE(quantclaw::test::WaitForServerReady(port, 5000))
+      << "Server not ready on port " << port;
 
   // Connect a client — the hello-ok response should contain a snapshot
   std::string url = "ws://127.0.0.1:" + std::to_string(port);

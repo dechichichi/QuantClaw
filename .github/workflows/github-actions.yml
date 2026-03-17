@@ -75,7 +75,7 @@ jobs:
 
     - name: Run Tests
       working-directory: build
-      run: ctest --output-on-failure --parallel
+      run: ctest --output-on-failure --parallel --timeout 120
 
     - name: Upload test results
       if: failure()
@@ -394,11 +394,93 @@ jobs:
         ASAN_OPTIONS: ${{ matrix.sanitizer == 'asan' && 'detect_leaks=1:halt_on_error=1' || '' }}
         TSAN_OPTIONS: ${{ matrix.sanitizer == 'tsan' && 'halt_on_error=1' || '' }}
         UBSAN_OPTIONS: ${{ matrix.sanitizer == 'ubsan' && 'halt_on_error=1:print_stacktrace=1' || '' }}
-      run: ctest --output-on-failure --parallel
+      # Sanitizers add 5-20x overhead; integration tests (WebSocket + RPC)
+      # need more than the default 120s to avoid flaky timeouts.
+      run: ctest --output-on-failure --parallel --timeout 300
 
     - name: Upload results on failure
       if: failure()
       uses: actions/upload-artifact@v7
       with:
         name: sanitizer-${{ matrix.sanitizer }}-results
+        path: build/Testing/
+
+  build-test-windows:
+    name: Build & Test Windows (MSVC)
+    runs-on: windows-latest
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+      # Direct vcpkg binary cache to a workspace-local dir so actions/cache
+      # can persist it across runs (avoids re-compiling all vcpkg packages).
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite"
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Restore vcpkg binary cache from resources repo (L1)
+      # Try to download pre-built packages from QuantClaw/resources release.
+      # This is the fastest path: no compilation at all.
+      # Falls back gracefully if the release does not exist yet.
+      run: |
+        $baseline = (Get-Content vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+        $short = $baseline.Substring(0, 8)
+        $tag = "vcpkg-windows-x64-$short"
+        $asset = "vcpkg-bincache-windows-x64.tar.gz"
+        $url = "https://github.com/QuantClaw/resources/releases/download/$tag/$asset"
+        Write-Host "Trying to download pre-built cache from: $url"
+        try {
+          Invoke-WebRequest -Uri $url -OutFile $asset -ErrorAction Stop
+          New-Item -ItemType Directory -Force -Path vcpkg-bincache | Out-Null
+          tar -xzf $asset
+          Write-Host "Pre-built vcpkg cache restored from QuantClaw/resources."
+          echo "VCPKG_CACHE_HIT=1" >> $env:GITHUB_ENV
+        } catch {
+          Write-Host "Pre-built cache not available ($($_.Exception.Message)), will compile from source."
+        }
+
+    - name: Cache vcpkg binary packages (L2 fallback)
+      # Used only when the resources release is unavailable (e.g. first build
+      # after a baseline bump).  Persists the freshly-compiled packages so that
+      # the next run hits L1 once the resources workflow publishes the release.
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/vcpkg-bincache
+        # Bust the cache when manifest dependencies change.
+        key: vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}
+        restore-keys: vcpkg-x64-windows-
+
+    - name: Update and bootstrap vcpkg
+      run: |
+        git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --depth=1
+        git -C "$env:VCPKG_INSTALLATION_ROOT" checkout FETCH_HEAD
+        & "$env:VCPKG_INSTALLATION_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+    - name: Configure CMake
+      run: |
+        cmake -B build `
+          -A x64 `
+          -DCMAKE_CXX_STANDARD=17 `
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+
+    - name: Build
+      run: cmake --build build --config Release --parallel
+
+    - name: Add vcpkg DLLs to PATH
+      # Prepend vcpkg DLL dir to the runner's PATH so both the test binary
+      # and any child processes it spawns (e.g. cmd.exe, ping) can find
+      # system tools alongside vcpkg DLLs.
+      run: |
+        $vcpkgBin = Join-Path $env:GITHUB_WORKSPACE "build\vcpkg_installed\x64-windows\bin"
+        echo $vcpkgBin >> $env:GITHUB_PATH
+
+    - name: Run Tests
+      working-directory: build
+      run: ctest --output-on-failure --parallel -C Release --timeout 240 --repeat until-pass:2
+
+    - name: Upload test results
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-results-windows-msvc
         path: build/Testing/

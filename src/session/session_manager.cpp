@@ -395,14 +395,14 @@ std::vector<SessionInfo> SessionManager::ListSessions() const {
   return result;
 }
 
-void SessionManager::DeleteSession(const std::string& session_key) {
+bool SessionManager::DeleteSession(const std::string& session_key) {
   std::unique_lock<std::shared_mutex> lock(mutex_);
 
   std::string normalized = NormalizeSessionKey(session_key);
   auto it = store_.find(normalized);
   if (it == store_.end()) {
     logger_->warn("Cannot delete non-existent session: {}", normalized);
-    return;
+    return false;
   }
 
   // Remove transcript file
@@ -415,6 +415,7 @@ void SessionManager::DeleteSession(const std::string& session_key) {
   SaveStore();
 
   logger_->info("Deleted session: {}", normalized);
+  return true;
 }
 
 void SessionManager::UpdateDisplayName(const std::string& session_key,
@@ -445,7 +446,10 @@ void SessionManager::ResetSession(const std::string& session_key) {
   auto old_path = transcript_path(it->second.session_id);
   if (std::filesystem::exists(old_path)) {
     auto archive_path = old_path;
-    archive_path += ".reset." + get_timestamp();
+    // Windows filenames cannot contain ':'; replace with '-' in timestamp
+    auto ts = get_timestamp();
+    std::replace(ts.begin(), ts.end(), ':', '-');
+    archive_path += ".reset." + ts;
     std::filesystem::rename(old_path, archive_path);
     logger_->info("Archived transcript: {}", archive_path.string());
   }

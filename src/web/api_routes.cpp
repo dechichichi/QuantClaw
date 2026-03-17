@@ -445,8 +445,8 @@ void register_api_routes(
             json_error(res, 400, "sessionKey is required");
             return;
           }
-          session_manager->DeleteSession(session_key);
-          json_ok(res, {{"ok", true}});
+          bool deleted = session_manager->DeleteSession(session_key);
+          json_ok(res, {{"ok", true}, {"deleted", deleted}});
         } catch (const nlohmann::json::exception& e) {
           json_error(res, 400, std::string("Invalid JSON: ") + e.what());
         } catch (const std::exception& e) {

@@ -37,6 +37,64 @@ struct ArgHelper {
 };
 
 // Capture stdout during a callable
+#ifdef _WIN32
+#include <fcntl.h>
+
+#include <io.h>
+static std::string capture_stdout(std::function<void()> fn) {
+  fflush(stdout);
+  int pipefd[2];
+  if (_pipe(pipefd, 65536, _O_BINARY) == -1) {
+    return "";
+  }
+  int saved_stdout = _dup(_fileno(stdout));
+  _dup2(pipefd[1], _fileno(stdout));
+  _close(pipefd[1]);
+
+  fn();
+  fflush(stdout);
+
+  _dup2(saved_stdout, _fileno(stdout));
+  _close(saved_stdout);
+
+  std::string result;
+  char buf[1024];
+  int n;
+  while ((n = _read(pipefd[0], buf, sizeof(buf))) > 0) {
+    result.append(buf, n);
+  }
+  _close(pipefd[0]);
+  return result;
+}
+
+// Capture stderr during a callable
+static std::string capture_stderr(std::function<void()> fn) {
+  fflush(stderr);
+  int pipefd[2];
+  if (_pipe(pipefd, 65536, _O_BINARY) == -1) {
+    return "";
+  }
+  int saved_stderr = _dup(_fileno(stderr));
+  _dup2(pipefd[1], _fileno(stderr));
+  _close(pipefd[1]);
+
+  fn();
+  fflush(stderr);
+
+  _dup2(saved_stderr, _fileno(stderr));
+  _close(saved_stderr);
+
+  std::string result;
+  char buf[1024];
+  int n;
+  while ((n = _read(pipefd[0], buf, sizeof(buf))) > 0) {
+    result.append(buf, n);
+  }
+  _close(pipefd[0]);
+  return result;
+}
+#else
+#include <unistd.h>
 static std::string capture_stdout(std::function<void()> fn) {
   fflush(stdout);
   int pipefd[2];
@@ -89,6 +147,7 @@ static std::string capture_stderr(std::function<void()> fn) {
   close(pipefd[0]);
   return result;
 }
+#endif
 
 // ========== CLIManager tests ==========
 
@@ -260,6 +319,22 @@ TEST_F(SessionCommandsTest, HistoryOnlyFlagsNoKey) {
   // Only flags, no positional session key
   auto err = capture_stderr([&]() {
     int ret = session_cmds_->HistoryCommand({"--json", "--limit", "10"});
+    EXPECT_EQ(ret, 1);
+  });
+  EXPECT_NE(err.find("session key required"), std::string::npos);
+}
+
+TEST_F(SessionCommandsTest, DeleteNoSessionKeyReturnsError) {
+  auto err = capture_stderr([&]() {
+    int ret = session_cmds_->DeleteCommand({});
+    EXPECT_EQ(ret, 1);
+  });
+  EXPECT_NE(err.find("session key required"), std::string::npos);
+}
+
+TEST_F(SessionCommandsTest, ResetNoSessionKeyReturnsError) {
+  auto err = capture_stderr([&]() {
+    int ret = session_cmds_->ResetCommand({});
     EXPECT_EQ(ret, 1);
   });
   EXPECT_NE(err.find("session key required"), std::string::npos);
