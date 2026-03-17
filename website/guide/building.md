@@ -40,7 +40,7 @@ sudo port install cmake openssl nlohmann_json spdlog
 - **CMake 3.15+**
 - **Git for Windows**
 
-> **Note:** The build system automatically defines `NOMINMAX` and links against `bcrypt` on Windows to avoid conflicts with Windows API macros and satisfy OpenSSL/spdlog dependencies. No manual configuration is required.
+> **Note:** The build system automatically defines `NOMINMAX` and links against `bcrypt` on Windows to avoid conflicts with Windows API macros and satisfy required cryptography library dependencies. No manual configuration is required.
 
 ## Clone Repository
 

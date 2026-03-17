@@ -182,7 +182,7 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmak
 
 > **Windows compatibility notes:**
 > - `NOMINMAX` is defined automatically to prevent conflicts between Windows API macros and C++ `std::min`/`std::max`.
-> - `bcrypt` is linked automatically to satisfy OpenSSL and spdlog dependencies on Windows.
+> - `bcrypt` is linked automatically to satisfy Windows crypto/TLS library dependencies (for example, mbedtls).
 > - `HTTPLIB_REQUIRE_ZLIB` is explicitly set to `OFF` when ZLIB is not present, preventing stale CMake cache issues on minimal environments.
 > - The `logs -f` (follow) flag is not supported on Windows; use `logs -n <count>` to view recent entries.
 

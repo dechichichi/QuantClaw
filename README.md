@@ -355,6 +355,9 @@ quantclaw doctor          # Diagnostic check
 quantclaw dashboard       # Open web UI in browser
 ```
 
+> **Note for Windows users:** log following (`-f`) is not currently supported on Windows and will print an error and exit.
+> As a workaround, use `quantclaw logs -n <count>` (for example, `quantclaw logs -n 100`) and re-run as needed.
+
 ### In-conversation message commands
 
 While chatting, prefix a message with a slash command to control the session:
@@ -811,7 +814,7 @@ quantclaw doctor                    # Run diagnostics
 **Can't connect to gateway**
 ```bash
 quantclaw health    # Check if gateway is running
-quantclaw logs -f   # Follow logs to diagnose errors
+quantclaw logs -f   # Follow logs to diagnose errors (on Windows use: quantclaw logs -n 50)
 quantclaw status    # Show connection and session counts
 ```
 

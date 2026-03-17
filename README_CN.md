@@ -351,8 +351,8 @@ quantclaw cron remove <id>                     # 按 ID 删除任务
 quantclaw health          # 健康检查
 quantclaw logs            # 查看网关日志（默认最后 50 行）
 quantclaw logs -n 100     # 查看最后 100 行
-quantclaw logs -f         # 实时跟踪日志
-quantclaw logs -n 20 -f   # 从最后 20 行开始实时跟踪
+quantclaw logs -f         # 实时跟踪日志（Linux/macOS 支持；Windows 请改用：quantclaw logs -n 50）
+quantclaw logs -n 20 -f   # 从最后 20 行开始实时跟踪（Linux/macOS 支持；Windows 请改用：quantclaw logs -n 20）
 quantclaw doctor          # 诊断检查
 quantclaw dashboard       # 在浏览器中打开 Web UI
 ```
@@ -810,7 +810,10 @@ quantclaw doctor                    # 运行诊断
 **无法连接到网关**
 ```bash
 quantclaw health    # 检查网关是否运行
-quantclaw logs -f   # 实时查看日志定位错误
+# Linux / macOS 实时查看日志（持续跟随）
+quantclaw logs -f
+# Windows 查看最近 N 行日志（例如 200 行）
+quantclaw logs -n 200
 quantclaw status    # 查看连接数和会话数
 ```
 

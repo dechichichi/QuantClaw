@@ -41,7 +41,7 @@ sudo port install cmake openssl nlohmann_json spdlog
 - CMake 3.15+
 - Git for Windows
 
-> **说明：** 构建系统会自动定义 `NOMINMAX`（防止 Windows API 宏与 `std::min`/`std::max` 冲突），并自动链接 `bcrypt`（满足 OpenSSL 和 spdlog 在 Windows 上的依赖）。无需手动配置。
+> **说明：** 构建系统会自动定义 `NOMINMAX`（防止 Windows API 宏与 `std::min`/`std::max` 冲突），并自动链接 `bcrypt` 等用于 Windows 上 TLS/加密功能的系统库（例如与 mbedtls/OpenSSL 集成）。无需手动配置。
 
 ## 克隆仓库
 
