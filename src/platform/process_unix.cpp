@@ -19,6 +19,8 @@
 
 #include <poll.h>
 
+#include "quantclaw/common/defer.hpp"
+
 namespace quantclaw::platform {
 
 ProcessId spawn_process(const std::vector<std::string>& args,
@@ -122,11 +124,12 @@ ExecResult exec_capture(const std::string& command, int timeout_seconds,
     result.exit_code = -1;
     return result;
   }
+  // Auto-close read end at function exit (all paths).
+  DEFER(close(pipefd[0]));
 
   pid_t pid = fork();
   if (pid < 0) {
-    close(pipefd[0]);
-    close(pipefd[1]);
+    close(pipefd[1]);  // Close write end; DEFER handles read end.
     result.exit_code = -1;
     return result;
   }
@@ -212,7 +215,7 @@ ExecResult exec_capture(const std::string& command, int timeout_seconds,
     result.output += buffer;
   }
 
-  close(pipefd[0]);
+  // DEFER will close pipefd[0] at function exit.
 
   if (timed_out) {
     kill(pid, SIGKILL);
