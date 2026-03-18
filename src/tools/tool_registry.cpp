@@ -705,9 +705,10 @@ std::string ToolRegistry::exec_tool(const nlohmann::json& params) {
   std::string resolved_workdir = workdir;
   if (!workdir.empty()) {
     if (!quantclaw::SecuritySandbox::ValidateFilePath(workdir,
-                                                       workspace_path_))
+                                                       workspace_path_)) {
       throw std::runtime_error(
           "Access denied: workdir outside workspace: " + workdir);
+    }
     // Resolve relative workdir against workspace so exec_capture uses
     // the correct directory (not gateway CWD).
     std::error_code ec;
