@@ -24,6 +24,14 @@ export default defineConfig(() => {
   return {
     base,
     publicDir: path.resolve(here, "public"),
+    resolve: {
+      alias: [
+        {
+          find: /^(\.\.\/)+src\//,
+          replacement: path.resolve(here, "../refs/openclaw/src") + "/",
+        },
+      ],
+    },
     optimizeDeps: {
       include: ["lit/directives/repeat.js"],
     },
