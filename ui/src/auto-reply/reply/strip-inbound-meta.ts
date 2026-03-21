@@ -76,8 +76,16 @@ export function stripInboundMetadata(text: string): string {
 
   const lines = text.split("\n");
   const result: string[] = [];
+  let pendingMetaLines: string[] = [];
   let inMetaBlock = false;
   let inFencedJson = false;
+
+  const flushPendingMetaLines = () => {
+    if (pendingMetaLines.length > 0) {
+      result.push(...pendingMetaLines);
+      pendingMetaLines = [];
+    }
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -92,10 +100,12 @@ export function stripInboundMetadata(text: string): string {
     if (!inMetaBlock && INBOUND_META_SENTINELS.some((s) => line.startsWith(s))) {
       inMetaBlock = true;
       inFencedJson = false;
+      pendingMetaLines = [line];
       continue;
     }
 
     if (inMetaBlock) {
+      pendingMetaLines.push(line);
       if (!inFencedJson && line.trim() === "```json") {
         inFencedJson = true;
         continue;
@@ -104,6 +114,7 @@ export function stripInboundMetadata(text: string): string {
         if (line.trim() === "```") {
           inMetaBlock = false;
           inFencedJson = false;
+          pendingMetaLines = [];
         }
         continue;
       }
@@ -111,11 +122,17 @@ export function stripInboundMetadata(text: string): string {
       if (line.trim() === "") {
         continue;
       }
-      // Unexpected non-blank line outside a fence — treat as user content.
+      // Unexpected non-blank line outside a fence – treat as user content.
       inMetaBlock = false;
+      flushPendingMetaLines();
+      continue;
     }
 
     result.push(line);
+  }
+
+  if (inMetaBlock) {
+    flushPendingMetaLines();
   }
 
   return result.join("\n").replace(/^\n+/, "").replace(/\n+$/, "");
@@ -153,9 +170,10 @@ export function stripLeadingInboundMetadata(text: string): string {
       while (index < lines.length && lines[index].trim() !== "```") {
         index++;
       }
-      if (index < lines.length && lines[index].trim() === "```") {
-        index++;
+      if (index >= lines.length) {
+        return text;
       }
+      index++;
     } else {
       return text;
     }

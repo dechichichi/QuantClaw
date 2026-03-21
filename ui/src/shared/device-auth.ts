@@ -26,5 +26,5 @@ export function normalizeDeviceAuthScopes(scopes: string[] | undefined): string[
       out.add(trimmed);
     }
   }
-  return [...out].toSorted();
+  return [...out].sort();
 }

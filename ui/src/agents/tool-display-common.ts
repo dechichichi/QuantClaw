@@ -300,7 +300,16 @@ function splitShellWords(input: string | undefined, maxWords = 48): string[] {
       continue;
     }
     if (char === "\\") {
-      escaped = true;
+      const next = input[i + 1];
+      const shouldEscape =
+        quote === '"'
+          ? next === '"' || next === "\\" || next === "$" || next === "`"
+          : !quote && (next === "\\" || next === '"' || next === "'" || /\s/.test(next ?? ""));
+      if (shouldEscape) {
+        escaped = true;
+        continue;
+      }
+      current += char;
       continue;
     }
 
@@ -525,9 +534,14 @@ function splitTopLevelStages(command: string): string[] {
   let start = 0;
 
   scanTopLevelChars(command, (char, index) => {
-    if (char === ";") {
+    if (char === ";" || char === "\n") {
       parts.push(command.slice(start, index));
       start = index + 1;
+      return true;
+    }
+    if (char === "\r" && command[index + 1] === "\n") {
+      parts.push(command.slice(start, index));
+      start = index + 2;
       return true;
     }
     if ((char === "&" || char === "|") && command[index + 1] === char) {
