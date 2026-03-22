@@ -421,7 +421,7 @@ Skills are compatible with the OpenClaw SKILL.md format.
 
 QuantClaw supports external channel adapters that connect to the gateway as standard WebSocket RPC clients. Adapters are Node.js processes managed by `ChannelAdapterManager`.
 
-**Built-in adapters** (in `adapters/`):
+**Built-in adapters** (in `src/adapters/`):
 
 | Adapter   | Library     | Status |
 |-----------|-------------|--------|
