@@ -20,7 +20,9 @@ export type UiSettings = {
 export function loadSettings(): UiSettings {
   const defaultUrl = (() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    return `${proto}://${location.host}`;
+    // Gateway WebSocket runs on port 18800, while HTTP API/UI is on 18801
+    const host = location.hostname + ":18800";
+    return `${proto}://${host}`;
   })();
 
   const defaults: UiSettings = {
