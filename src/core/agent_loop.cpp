@@ -596,6 +596,10 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
       }
 
       if (saw_stream_end) {
+        logger_->debug(
+            "Empty streaming response details: handled_tool_calls={}, "
+            "saw_invalid_tool_call={}, full_response_size={}",
+            handled_tool_calls, saw_invalid_tool_call, full_response.size());
         logger_->error(
             "Streaming response ended without text or valid tool calls");
         if (callback) {

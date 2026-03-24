@@ -4,8 +4,10 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <sstream>
 
 #include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
 #include "quantclaw/config.hpp"
@@ -24,6 +26,8 @@
 class MockLLMProvider : public quantclaw::LLMProvider {
  public:
   std::string response_text = "I am QuantClaw.";
+  std::string response_finish_reason = "stop";
+  std::vector<quantclaw::ToolCall> response_tool_calls;
   std::vector<quantclaw::ChatCompletionResponse> stream_chunks;
   mutable quantclaw::ChatCompletionRequest last_request;
 
@@ -32,7 +36,8 @@ class MockLLMProvider : public quantclaw::LLMProvider {
     last_request = request;
     quantclaw::ChatCompletionResponse resp;
     resp.content = response_text;
-    resp.finish_reason = "stop";
+    resp.finish_reason = response_finish_reason;
+    resp.tool_calls = response_tool_calls;
     resp.usage = mock_usage;
     return resp;
   }
@@ -72,8 +77,12 @@ class AgentLoopTest : public ::testing::Test {
   void SetUp() override {
     test_dir_ = quantclaw::test::MakeTestDir("quantclaw_agent_test");
 
-    auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();
-    logger_ = std::make_shared<spdlog::logger>("test", null_sink);
+    auto log_sink =
+        std::make_shared<spdlog::sinks::ostream_sink_mt>(log_stream_);
+    logger_ = std::make_shared<spdlog::logger>("test", log_sink);
+    logger_->set_level(spdlog::level::debug);
+    logger_->flush_on(spdlog::level::debug);
+    logger_->set_pattern("%l:%v");
 
     memory_manager_ =
         std::make_shared<quantclaw::MemoryManager>(test_dir_, logger_);
@@ -101,6 +110,7 @@ class AgentLoopTest : public ::testing::Test {
   }
 
   std::filesystem::path test_dir_;
+  std::ostringstream log_stream_;
   std::shared_ptr<spdlog::logger> logger_;
   std::shared_ptr<quantclaw::MemoryManager> memory_manager_;
   std::shared_ptr<quantclaw::SkillLoader> skill_loader_;
@@ -276,6 +286,48 @@ TEST_F(AgentLoopTest, StreamInvalidToolCallReturnsReadableFallback) {
   ASSERT_FALSE(events.empty());
   EXPECT_EQ(events.back().type, quantclaw::gateway::events::kMessageEnd);
   EXPECT_EQ(events.back().data.value("content", ""),
+            "I couldn't continue because the model emitted an invalid tool "
+            "call. Please try again.");
+}
+
+TEST_F(AgentLoopTest, StreamEmptyResponseReturnsReadableFallbackAndLogsWhy) {
+  quantclaw::ChatCompletionResponse end_chunk;
+  end_chunk.is_stream_end = true;
+
+  mock_provider_->stream_chunks = {end_chunk};
+
+  std::vector<quantclaw::AgentEvent> events;
+  auto new_msgs = agent_loop_->ProcessMessageStream(
+      "Hello", {}, "System.", [&events](const quantclaw::AgentEvent& event) {
+        events.push_back(event);
+      });
+
+  ASSERT_FALSE(new_msgs.empty());
+  EXPECT_EQ(new_msgs.back().role, "assistant");
+  ASSERT_FALSE(new_msgs.back().content.empty());
+  EXPECT_EQ(new_msgs.back().content[0].text,
+            "I couldn't complete that request because the model returned no "
+            "usable response. Please try again.");
+  ASSERT_FALSE(events.empty());
+  EXPECT_EQ(events.back().type, quantclaw::gateway::events::kMessageEnd);
+  EXPECT_EQ(events.back().data.value("content", ""),
+            "I couldn't complete that request because the model returned no "
+            "usable response. Please try again.");
+  EXPECT_NE(log_stream_.str().find("Empty streaming response details:"),
+            std::string::npos);
+}
+
+TEST_F(AgentLoopTest, NonStreamInvalidToolCallReturnsReadableFallback) {
+  mock_provider_->response_text.clear();
+  mock_provider_->response_tool_calls = {
+      {"call_invalid", "", {{"command", "ver"}}}};
+
+  auto new_msgs = agent_loop_->ProcessMessage("Hello", {}, "System.");
+
+  ASSERT_FALSE(new_msgs.empty());
+  EXPECT_EQ(new_msgs.back().role, "assistant");
+  ASSERT_FALSE(new_msgs.back().content.empty());
+  EXPECT_EQ(new_msgs.back().content[0].text,
             "I couldn't continue because the model emitted an invalid tool "
             "call. Please try again.");
 }
