@@ -98,7 +98,19 @@ class DaemonManagerTest : public ::testing::Test {
   }
 
 #ifndef _WIN32
-  std::filesystem::path install_fake_service_command(const std::string& name) {
+  std::filesystem::path fake_service_state_path(const std::string& name) const {
+    return test_home_ / (name + ".state");
+  }
+
+  std::string read_file(const std::filesystem::path& path) const {
+    std::ifstream in(path);
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+  }
+
+  std::filesystem::path
+  install_fake_service_command(const std::string& name,
+                               bool service_loaded = false) {
     auto bin_dir = test_home_ / "bin";
     std::filesystem::create_directories(bin_dir);
 
@@ -108,8 +120,25 @@ class DaemonManagerTest : public ::testing::Test {
     script << "#!/bin/sh\n";
     script << "echo \"$@\" >> \"" << log_path.string() << "\"\n";
 #ifdef __APPLE__
+    auto state_path = fake_service_state_path(name);
+    script << "STATE_FILE=\"" << state_path.string() << "\"\n";
     script << "if [ \"$1\" = \"print\" ]; then\n";
-    script << "  echo \"pid = 4242\"\n";
+    script << "  if [ -f \"$STATE_FILE\" ]; then\n";
+    script << "    cat \"$STATE_FILE\"\n";
+    script << "    exit 0\n";
+    script << "  fi\n";
+    script << "  exit 1\n";
+    script << "fi\n";
+    script << "if [ \"$1\" = \"bootstrap\" ]; then\n";
+    script << "  printf 'pid = 4242\\n' > \"$STATE_FILE\"\n";
+    script << "  exit 0\n";
+    script << "fi\n";
+    script << "if [ \"$1\" = \"kickstart\" ]; then\n";
+    script << "  [ -f \"$STATE_FILE\" ]\n";
+    script << "  exit $?\n";
+    script << "fi\n";
+    script << "if [ \"$1\" = \"bootout\" ]; then\n";
+    script << "  rm -f \"$STATE_FILE\"\n";
     script << "  exit 0\n";
     script << "fi\n";
 #else
@@ -130,6 +159,13 @@ class DaemonManagerTest : public ::testing::Test {
                                      std::filesystem::perms::group_read |
                                      std::filesystem::perms::group_exec,
                                  std::filesystem::perm_options::replace);
+
+#ifdef __APPLE__
+    if (service_loaded) {
+      std::ofstream state(state_path);
+      state << "pid = 4242\n";
+    }
+#endif
 
     std::string new_path = bin_dir.string();
     if (!orig_path_.empty()) {
@@ -275,7 +311,7 @@ TEST_F(DaemonManagerTest, InstallWritesPlatformServiceDefinition) {
 
 TEST_F(DaemonManagerTest, IsRunningFallsBackToServiceManagerWithoutPidFile) {
 #ifdef __APPLE__
-  install_fake_service_command("launchctl");
+  install_fake_service_command("launchctl", true);
 #else
   install_fake_service_command("systemctl");
 #endif
@@ -283,4 +319,67 @@ TEST_F(DaemonManagerTest, IsRunningFallsBackToServiceManagerWithoutPidFile) {
   EXPECT_TRUE(daemon_->IsRunning());
   EXPECT_EQ(daemon_->GetPid(), 4242);
 }
+
+#ifdef __APPLE__
+TEST_F(DaemonManagerTest, GetPidRejectsNegativePidFromLaunchctl) {
+  install_fake_service_command("launchctl", true);
+  std::ofstream state(fake_service_state_path("launchctl"));
+  state << "pid = -42\n";
+  state.close();
+
+  EXPECT_EQ(daemon_->GetPid(), -1);
+}
+
+TEST_F(DaemonManagerTest, GetPidRejectsOverflowPidFromLaunchctl) {
+  install_fake_service_command("launchctl", true);
+  std::ofstream state(fake_service_state_path("launchctl"));
+  state << "pid = 999999999999999999999\n";
+  state.close();
+
+  EXPECT_EQ(daemon_->GetPid(), -1);
+}
+
+TEST_F(DaemonManagerTest, StartCallsLaunchctlBootstrapAndKickstart) {
+  auto log_path = install_fake_service_command("launchctl");
+  ASSERT_EQ(daemon_->Install(19001), 0);
+
+  EXPECT_EQ(daemon_->Start(), 0);
+
+  auto log = read_file(log_path);
+  EXPECT_NE(log.find("print gui/"), std::string::npos);
+  EXPECT_NE(log.find("bootstrap gui/"), std::string::npos);
+  EXPECT_NE(log.find("kickstart -k gui/"), std::string::npos);
+}
+
+TEST_F(DaemonManagerTest, StopCallsLaunchctlBootout) {
+  auto log_path = install_fake_service_command("launchctl", true);
+
+  EXPECT_EQ(daemon_->Stop(), 0);
+
+  auto log = read_file(log_path);
+  EXPECT_NE(log.find("bootout gui/"), std::string::npos);
+  EXPECT_FALSE(std::filesystem::exists(fake_service_state_path("launchctl")));
+}
+
+TEST_F(DaemonManagerTest, RestartCombinesStopAndStart) {
+  auto log_path = install_fake_service_command("launchctl", true);
+  ASSERT_EQ(daemon_->Install(19001), 0);
+
+  EXPECT_EQ(daemon_->Restart(), 0);
+
+  auto log = read_file(log_path);
+  EXPECT_NE(log.find("bootout gui/"), std::string::npos);
+  EXPECT_NE(log.find("bootstrap gui/"), std::string::npos);
+  EXPECT_NE(log.find("kickstart -k gui/"), std::string::npos);
+}
+
+TEST_F(DaemonManagerTest, StatusCallsLaunchctlPrint) {
+  auto log_path = install_fake_service_command("launchctl", true);
+
+  EXPECT_EQ(daemon_->Status(), 0);
+
+  auto log = read_file(log_path);
+  EXPECT_NE(log.find("print gui/"), std::string::npos);
+}
+#endif
 #endif

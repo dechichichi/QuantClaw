@@ -5,11 +5,13 @@
 
 #include <unistd.h>
 
+#include <charconv>
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string_view>
 
 #include "quantclaw/platform/process.hpp"
@@ -69,30 +71,61 @@ std::string xml_escape(const std::string& value) {
 #endif
 
 int parse_pid_from_string(std::string_view value) {
-  std::string digits;
-  bool started = false;
-  for (char ch : value) {
-    if (ch >= '0' && ch <= '9') {
-      digits += ch;
-      started = true;
-    } else if (started) {
-      break;
+  for (size_t i = 0; i < value.size(); ++i) {
+    const char ch = value[i];
+    if (ch == '-' && i + 1 < value.size() && value[i + 1] >= '0' &&
+        value[i + 1] <= '9') {
+      return -1;
     }
+    if (ch < '0' || ch > '9') {
+      continue;
+    }
+
+    size_t end = i + 1;
+    while (end < value.size() && value[end] >= '0' && value[end] <= '9') {
+      ++end;
+    }
+
+    long long parsed = 0;
+    const char* begin = value.data() + i;
+    const char* finish = value.data() + end;
+    auto [ptr, ec] = std::from_chars(begin, finish, parsed);
+    if (ec != std::errc() || ptr != finish || parsed <= 0 ||
+        parsed > std::numeric_limits<int>::max()) {
+      return -1;
+    }
+    return static_cast<int>(parsed);
   }
-  if (digits.empty()) {
-    return -1;
-  }
-  try {
-    return std::stoi(digits);
-  } catch (...) {
-    return -1;
-  }
+
+  return -1;
 }
 
 #ifdef __APPLE__
+std::string launchd_domain() {
+  return "gui/" + std::to_string(static_cast<int>(geteuid()));
+}
+
 std::string launchd_target() {
-  return "gui/" + std::to_string(static_cast<int>(geteuid())) + "/" +
-         std::string(kServiceLabel);
+  return launchd_domain() + "/" + std::string(kServiceLabel);
+}
+
+ExecResult launchd_print_state() {
+  return exec_capture(
+      "launchctl print " + shell_quote(launchd_target()) + " 2>/dev/null", 5);
+}
+
+bool launchd_is_loaded() {
+  return launchd_print_state().exit_code == 0;
+}
+
+int launchd_bootout(std::shared_ptr<spdlog::logger> logger,
+                    std::string_view context, bool quiet_if_missing = false) {
+  const int ret = std::system(
+      ("launchctl bootout " + shell_quote(launchd_target())).c_str());
+  if (ret != 0 && !(quiet_if_missing && !launchd_is_loaded())) {
+    logger->warn("launchctl bootout returned {} during {}", ret, context);
+  }
+  return ret;
 }
 #endif
 
@@ -160,6 +193,16 @@ int ServiceManager::install(int port) {
       << "  </dict>\n"
       << "</dict>\n"
       << "</plist>\n";
+  out.flush();
+  if (!out) {
+    logger_->error("Failed to write plist file: {}", svc);
+    return 1;
+  }
+  out.close();
+  if (!out) {
+    logger_->error("Failed to close plist file: {}", svc);
+    return 1;
+  }
   logger_->info("launchd service installed at {}", svc);
   return 0;
 #else
@@ -177,7 +220,16 @@ int ServiceManager::install(int port) {
       << "Environment=QUANTCLAW_LOG_LEVEL=info\n\n"
       << "[Install]\n"
       << "WantedBy=default.target\n";
+  out.flush();
+  if (!out) {
+    logger_->error("Failed to write service file: {}", svc);
+    return 1;
+  }
   out.close();
+  if (!out) {
+    logger_->error("Failed to close service file: {}", svc);
+    return 1;
+  }
 
   int r = std::system("systemctl --user daemon-reload");
   if (r != 0) {
@@ -194,10 +246,7 @@ int ServiceManager::install(int port) {
 
 int ServiceManager::uninstall() {
 #ifdef __APPLE__
-  auto target = launchd_target();
-  (void)std::system(
-      ("launchctl bootout " + shell_quote(target) + " >/dev/null 2>&1")
-          .c_str());
+  (void)launchd_bootout(logger_, "uninstall", true);
 #else
   stop();
 #endif
@@ -232,18 +281,25 @@ int ServiceManager::start() {
   }
 
   auto target = launchd_target();
-  (void)std::system(
-      ("launchctl bootout " + shell_quote(target) + " >/dev/null 2>&1")
-          .c_str());
+  if (launchd_is_loaded()) {
+    const int bootout_ret = launchd_bootout(logger_, "start");
+    if (bootout_ret != 0 && launchd_is_loaded()) {
+      return bootout_ret;
+    }
+  }
 
-  int ret = std::system(
-      ("launchctl bootstrap " +
-       shell_quote("gui/" + std::to_string(static_cast<int>(geteuid()))) + " " +
-       shell_quote(svc))
-          .c_str());
+  int ret = std::system(("launchctl bootstrap " +
+                         shell_quote(launchd_domain()) + " " + shell_quote(svc))
+                            .c_str());
   if (ret != 0) {
-    logger_->error("Failed to bootstrap launchd service (exit {})", ret);
-    return ret;
+    if (!launchd_is_loaded()) {
+      logger_->error("Failed to bootstrap launchd service (exit {})", ret);
+      return ret;
+    }
+    logger_->warn(
+        "launchd bootstrap returned {} but the service is already loaded; "
+        "continuing with kickstart",
+        ret);
   }
 
   ret = std::system(("launchctl kickstart -k " + shell_quote(target)).c_str());
@@ -309,8 +365,7 @@ int ServiceManager::restart() {
 
 int ServiceManager::status() {
 #ifdef __APPLE__
-  auto result = exec_capture(
-      "launchctl print " + shell_quote(launchd_target()) + " 2>/dev/null", 5);
+  auto result = launchd_print_state();
   if (!result.output.empty()) {
     std::cout << result.output;
   }
@@ -333,8 +388,7 @@ bool ServiceManager::is_running() const {
   }
 
 #ifdef __APPLE__
-  auto result = exec_capture(
-      "launchctl print " + shell_quote(launchd_target()) + " 2>/dev/null", 5);
+  auto result = launchd_print_state();
   return result.exit_code == 0 &&
          result.output.find("pid = ") != std::string::npos;
 #else
@@ -356,8 +410,7 @@ int ServiceManager::get_pid() const {
   }
 
 #ifdef __APPLE__
-  auto result = exec_capture(
-      "launchctl print " + shell_quote(launchd_target()) + " 2>/dev/null", 5);
+  auto result = launchd_print_state();
   if (result.exit_code != 0) {
     return -1;
   }

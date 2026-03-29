@@ -30,9 +30,11 @@ success() { echo -e "${GREEN}[build]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[build]${NC} $*"; }
 die()     { echo -e "${RED}[build] ERROR:${NC} $*" >&2; exit 1; }
 
+HOST_OS="$(uname -s)"
+
 # ── CPU cores ────────────────────────────────────────────────────────────────
 detect_cores() {
-    if [[ "$OSTYPE" == "darwin"* ]]; then
+    if [[ "$HOST_OS" == "Darwin" ]]; then
         sysctl -n hw.logicalcpu
     elif [[ -f /proc/cpuinfo ]]; then
         grep -c ^processor /proc/cpuinfo
@@ -99,12 +101,14 @@ ensure_brew_package() {
     local pkg="$1"
     brew list --versions "$pkg" &>/dev/null && return 0
     info "Installing missing Homebrew package: $pkg"
-    brew install "$pkg"
+    if ! brew install "$pkg"; then
+        die "Failed to install $pkg via Homebrew"
+    fi
 }
 
 CMAKE_EXTRA_ARGS=()
 
-if [[ "$OSTYPE" == "darwin"* ]]; then
+if [[ "$HOST_OS" == "Darwin" ]]; then
     ensure_brew
     for pkg in cmake ninja pkg-config git spdlog openssl@3 curl; do
         ensure_brew_package "$pkg"
