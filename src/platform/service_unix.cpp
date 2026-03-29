@@ -3,14 +3,14 @@
 
 #ifndef _WIN32
 
+#include <unistd.h>
+
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <sstream>
 #include <string_view>
-#include <unistd.h>
 
 #include "quantclaw/platform/process.hpp"
 #include "quantclaw/platform/service.hpp"
@@ -25,6 +25,7 @@ constexpr const char* kServiceLabel = "com.quantclaw.gateway";
 constexpr const char* kServiceLabel = "quantclaw-gateway";
 #endif
 
+#ifdef __APPLE__
 std::string shell_quote(const std::string& value) {
   std::string quoted = "'";
   for (char ch : value) {
@@ -65,6 +66,7 @@ std::string xml_escape(const std::string& value) {
   }
   return escaped;
 }
+#endif
 
 int parse_pid_from_string(std::string_view value) {
   std::string digits;
@@ -106,8 +108,7 @@ ServiceManager::ServiceManager(std::shared_ptr<spdlog::logger> logger)
 
 std::string ServiceManager::service_path() const {
 #ifdef __APPLE__
-  return home_directory() +
-         "/Library/LaunchAgents/com.quantclaw.gateway.plist";
+  return home_directory() + "/Library/LaunchAgents/com.quantclaw.gateway.plist";
 #else
   return home_directory() + "/.config/systemd/user/quantclaw-gateway.service";
 #endif
@@ -192,7 +193,15 @@ int ServiceManager::install(int port) {
 }
 
 int ServiceManager::uninstall() {
+#ifdef __APPLE__
+  auto target = launchd_target();
+  (void)std::system(
+      ("launchctl bootout " + shell_quote(target) + " >/dev/null 2>&1")
+          .c_str());
+#else
   stop();
+#endif
+
   auto svc = service_path();
   if (!std::filesystem::exists(svc)) {
     logger_->info("Service not installed");
@@ -204,9 +213,9 @@ int ServiceManager::uninstall() {
   logger_->info("launchd service uninstalled");
   return 0;
 #else
-  (void)std::system(
-      ("systemctl --user disable " + std::string(kServiceLabel) + " 2>/dev/null")
-          .c_str());
+  (void)std::system(("systemctl --user disable " + std::string(kServiceLabel) +
+                     " 2>/dev/null")
+                        .c_str());
   std::filesystem::remove(svc);
   (void)std::system("systemctl --user daemon-reload 2>/dev/null");
   logger_->info("Service uninstalled");
@@ -228,10 +237,9 @@ int ServiceManager::start() {
           .c_str());
 
   int ret = std::system(
-      ("launchctl bootstrap " + shell_quote("gui/" +
-                                            std::to_string(static_cast<int>(
-                                                geteuid()))) +
-       " " + shell_quote(svc))
+      ("launchctl bootstrap " +
+       shell_quote("gui/" + std::to_string(static_cast<int>(geteuid()))) + " " +
+       shell_quote(svc))
           .c_str());
   if (ret != 0) {
     logger_->error("Failed to bootstrap launchd service (exit {})", ret);
@@ -301,9 +309,8 @@ int ServiceManager::restart() {
 
 int ServiceManager::status() {
 #ifdef __APPLE__
-  auto result = exec_capture("launchctl print " + shell_quote(launchd_target()) +
-                                 " 2>/dev/null",
-                             5);
+  auto result = exec_capture(
+      "launchctl print " + shell_quote(launchd_target()) + " 2>/dev/null", 5);
   if (!result.output.empty()) {
     std::cout << result.output;
   }
@@ -326,15 +333,14 @@ bool ServiceManager::is_running() const {
   }
 
 #ifdef __APPLE__
-  auto result = exec_capture("launchctl print " + shell_quote(launchd_target()) +
-                                 " 2>/dev/null",
-                             5);
+  auto result = exec_capture(
+      "launchctl print " + shell_quote(launchd_target()) + " 2>/dev/null", 5);
   return result.exit_code == 0 &&
          result.output.find("pid = ") != std::string::npos;
 #else
-  auto result = exec_capture(
-      "systemctl --user is-active --quiet " + std::string(kServiceLabel),
-      5);
+  auto result = exec_capture("exec systemctl --user is-active --quiet " +
+                                 std::string(kServiceLabel),
+                             5);
   return result.exit_code == 0;
 #endif
 }
@@ -350,9 +356,8 @@ int ServiceManager::get_pid() const {
   }
 
 #ifdef __APPLE__
-  auto result = exec_capture("launchctl print " + shell_quote(launchd_target()) +
-                                 " 2>/dev/null",
-                             5);
+  auto result = exec_capture(
+      "launchctl print " + shell_quote(launchd_target()) + " 2>/dev/null", 5);
   if (result.exit_code != 0) {
     return -1;
   }
@@ -360,13 +365,13 @@ int ServiceManager::get_pid() const {
   if (pos == std::string::npos) {
     return -1;
   }
-  return parse_pid_from_string(
-      std::string_view(result.output).substr(pos + std::string("pid = ").size()));
+  return parse_pid_from_string(std::string_view(result.output)
+                                   .substr(pos + std::string("pid = ").size()));
 #else
-  auto result = exec_capture(
-      "systemctl --user show " + std::string(kServiceLabel) +
-          " --property MainPID --value 2>/dev/null",
-      5);
+  auto result =
+      exec_capture("exec systemctl --user show " + std::string(kServiceLabel) +
+                       " --property MainPID --value 2>/dev/null",
+                   5);
   if (result.exit_code != 0) {
     return -1;
   }

@@ -64,6 +64,20 @@ ensure_brew_package() {
   brew install "$pkg"
 }
 
+lookup_user_home() {
+  local user="$1"
+  if [[ -z "$user" || "$user" == "root" ]]; then
+    return 1
+  fi
+
+  if [[ "$PLATFORM" == "linux" ]]; then
+    getent passwd "$user" | cut -d: -f6
+  else
+    dscl . -read "/Users/${user}" NFSHomeDirectory 2>/dev/null \
+      | awk '{print $2}'
+  fi
+}
+
 install_linux_deps() {
   [[ "$SKIP_DEPS" == "1" ]] && return 0
   [[ -f /etc/os-release ]] || die "Cannot detect Linux distribution"
@@ -118,10 +132,27 @@ build_binary() {
 
 resolve_target_home() {
   if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-    eval echo "~${SUDO_USER}"
-  else
-    echo "${HOME}"
+    local sudo_home=""
+    sudo_home="$(lookup_user_home "${SUDO_USER}")" || true
+    if [[ -n "$sudo_home" ]]; then
+      echo "$sudo_home"
+      return 0
+    fi
   fi
+  echo "${HOME}"
+}
+
+run_for_target_user() {
+  local target_home="$1"
+  shift
+
+  if [[ "$INSTALL_MODE" == "system" && -n "${SUDO_USER:-}" &&
+        "${SUDO_USER}" != "root" ]]; then
+    sudo -u "$SUDO_USER" -H env HOME="$target_home" "$@"
+    return
+  fi
+
+  HOME="$target_home" "$@"
 }
 
 install_binary() {
@@ -143,7 +174,7 @@ run_onboard() {
   local target_home="$1"
   local target_bin="$2"
   info "Creating workspace and config..."
-  HOME="$target_home" "$target_bin" onboard --quick >/dev/null
+  run_for_target_user "$target_home" "$target_bin" onboard --quick >/dev/null
 }
 
 install_service_definition() {
@@ -151,8 +182,9 @@ install_service_definition() {
   local target_bin="$2"
   [[ "$SKIP_SERVICE" -eq 1 ]] && return 0
   info "Installing background service definition..."
-  if ! HOME="$target_home" "$target_bin" gateway install >/dev/null; then
-    warn "Service definition installation failed; continuing"
+  if ! run_for_target_user "$target_home" "$target_bin" gateway install \
+      >/dev/null; then
+    die "Failed to install background service definition"
   fi
 }
 

@@ -16,8 +16,8 @@
 #include <thread>
 
 #ifdef __APPLE__
-#include <mach-o/dyld.h>
 #include <limits.h>
+#include <mach-o/dyld.h>
 #endif
 
 #include "quantclaw/common/defer.hpp"

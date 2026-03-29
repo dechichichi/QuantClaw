@@ -334,8 +334,7 @@ int OnboardCommands::SetupDaemon() {
       port = cfg.gateway.port;
   } catch (...) {}
 
-  std::cout << "\nSetting up QuantClaw as a background service..."
-            << std::endl;
+  std::cout << "\nSetting up QuantClaw as a background service..." << std::endl;
 
   if (InstallDaemon(port)) {
     std::cout << "✓ Daemon installed successfully" << std::endl;

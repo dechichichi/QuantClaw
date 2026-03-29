@@ -123,14 +123,13 @@ class DaemonManagerTest : public ::testing::Test {
 #endif
     script << "exit 0\n";
     script.close();
-    std::filesystem::permissions(
-        script_path,
-        std::filesystem::perms::owner_read |
-            std::filesystem::perms::owner_write |
-            std::filesystem::perms::owner_exec |
-            std::filesystem::perms::group_read |
-            std::filesystem::perms::group_exec,
-        std::filesystem::perm_options::replace);
+    std::filesystem::permissions(script_path,
+                                 std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write |
+                                     std::filesystem::perms::owner_exec |
+                                     std::filesystem::perms::group_read |
+                                     std::filesystem::perms::group_exec,
+                                 std::filesystem::perm_options::replace);
 
     std::string new_path = bin_dir.string();
     if (!orig_path_.empty()) {
