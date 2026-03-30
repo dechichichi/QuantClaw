@@ -222,7 +222,8 @@ TEST_F(ConfigTest, ExpandHomeUsesUserProfileWhenHomeMissing) {
   test_unsetenv("HOME");
   test_setenv("USERPROFILE", fake_home.string().c_str());
 
-  std::string expanded = quantclaw::QuantClawConfig::ExpandHome("~/config.json");
+  std::string expanded =
+      quantclaw::QuantClawConfig::ExpandHome("~/config.json");
 
   if (!orig_home.empty()) {
     test_setenv("HOME", orig_home.c_str());

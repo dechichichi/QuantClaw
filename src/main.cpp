@@ -568,7 +568,7 @@ int main(int argc, char* argv[]) {
            // Multi-directory skill loading
            auto workspace_path =
                std::filesystem::path(quantclaw::platform::home_directory()) /
-                                 ".quantclaw/agents/main/workspace";
+               ".quantclaw/agents/main/workspace";
 
            // Load config for skills settings
            quantclaw::SkillsConfig skills_config;
@@ -611,7 +611,7 @@ int main(int argc, char* argv[]) {
 
            auto workspace_path =
                std::filesystem::path(quantclaw::platform::home_directory()) /
-                                 ".quantclaw/agents/main/workspace";
+               ".quantclaw/agents/main/workspace";
 
            quantclaw::SkillsConfig skills_config;
            try {
@@ -669,7 +669,7 @@ int main(int argc, char* argv[]) {
          // Check workspace
          auto workspace =
              std::filesystem::path(quantclaw::platform::home_directory()) /
-                          ".quantclaw/agents/main/workspace";
+             ".quantclaw/agents/main/workspace";
          bool ws_ok = std::filesystem::exists(workspace);
          std::cout << "[" << (ws_ok ? "OK" : "!!")
                    << "] Workspace: " << workspace.string() << std::endl;
@@ -707,8 +707,8 @@ int main(int argc, char* argv[]) {
          for (int i = 1; i < argc; ++i)
            args.push_back(argv[i]);
 
-         std::string cron_file = quantclaw::platform::home_directory() +
-                                 "/.quantclaw/cron.json";
+         std::string cron_file =
+             quantclaw::platform::home_directory() + "/.quantclaw/cron.json";
 
          if (args.empty() || args[0] == "list") {
            try {
@@ -856,7 +856,7 @@ int main(int argc, char* argv[]) {
            // Fallback: offline search
            auto workspace =
                std::filesystem::path(quantclaw::platform::home_directory()) /
-                            ".quantclaw/agents/main/workspace";
+               ".quantclaw/agents/main/workspace";
 
            quantclaw::MemorySearch search(logger);
            search.IndexDirectory(workspace);

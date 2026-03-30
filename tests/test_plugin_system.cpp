@@ -193,8 +193,7 @@ TEST_F(PluginRegistryTest, DiscoverEmptyDirectory) {
 }
 
 TEST_F(PluginRegistryTest, DiscoverGlobalPluginsFromPlatformHome) {
-  auto test_home =
-      quantclaw::test::MakeTestDir("quantclaw_plugin_home_test");
+  auto test_home = quantclaw::test::MakeTestDir("quantclaw_plugin_home_test");
   auto get_or_empty = [](const char* name) -> std::string {
     const char* value = std::getenv(name);
     return value ? value : "";

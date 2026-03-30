@@ -22,8 +22,8 @@
 #include "quantclaw/gateway/command_queue.hpp"
 #include "quantclaw/gateway/gateway_server.hpp"
 #include "quantclaw/gateway/protocol.hpp"
-#include "quantclaw/plugins/plugin_system.hpp"
 #include "quantclaw/platform/process.hpp"
+#include "quantclaw/plugins/plugin_system.hpp"
 #include "quantclaw/providers/provider_registry.hpp"
 #include "quantclaw/security/exec_approval.hpp"
 #include "quantclaw/session/session_manager.hpp"
@@ -937,7 +937,7 @@ void register_rpc_handlers(
                  ClientConnection& /*client*/) -> nlohmann::json {
           auto workspace_path =
               std::filesystem::path(quantclaw::platform::home_directory()) /
-                                ".quantclaw/agents/main/workspace";
+              ".quantclaw/agents/main/workspace";
           std::string managed_dir =
               (std::filesystem::path(quantclaw::platform::home_directory()) /
                ".quantclaw" / "skills")
@@ -1583,8 +1583,9 @@ void register_rpc_handlers(
 
   // --- memory.status ---
   {
-    auto workspace = std::filesystem::path(quantclaw::platform::home_directory()) /
-                     ".quantclaw/agents/main/workspace";
+    auto workspace =
+        std::filesystem::path(quantclaw::platform::home_directory()) /
+        ".quantclaw/agents/main/workspace";
 
     server.RegisterHandler(
         methods::kMemoryStatus,
