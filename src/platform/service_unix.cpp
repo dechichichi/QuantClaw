@@ -442,7 +442,7 @@ int ServiceManager::get_pid() const {
     std::ifstream f(pid_file_);
     int pid = -1;
     f >> pid;
-    if (pid > 0 && kill(pid, 0) == 0 && is_gateway_process(pid)) {
+    if (pid > 0) {
       return pid;
     }
   }
