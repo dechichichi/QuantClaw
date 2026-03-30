@@ -466,7 +466,8 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
               // Providers normally send an empty final marker, but some tests
               // and adapters attach the full text to the end chunk. Preserve
               // that fallback without duplicating already streamed content.
-              if (!has_non_whitespace(full_response) && has_non_whitespace(chunk.content)) {
+              if (!has_non_whitespace(full_response) &&
+                  has_non_whitespace(chunk.content)) {
                 full_response = chunk.content;
               }
               return;

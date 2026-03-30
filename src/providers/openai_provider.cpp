@@ -303,16 +303,19 @@ static std::vector<ToolCall> TakeCompleteToolCalls(StreamContext* ctx,
     nlohmann::json parsed_arguments = nlohmann::json::object();
     bool invalid_arguments = false;
     if (HasNonWhitespace(pending.arguments)) {
-      parsed_arguments = nlohmann::json::parse(pending.arguments, nullptr, false);
+      parsed_arguments =
+          nlohmann::json::parse(pending.arguments, nullptr, false);
       invalid_arguments = parsed_arguments.is_discarded();
     }
 
-    if (pending.id.empty() || !HasNonWhitespace(pending.name) || invalid_arguments) {
+    if (pending.id.empty() || !HasNonWhitespace(pending.name) ||
+        invalid_arguments) {
       if (!drop_incomplete) {
         remaining.push_back(pending);
       } else if (ctx->logger) {
         ctx->logger->warn(
-            "Dropping incomplete streamed tool call: id='{}', name='{}', arguments_len={}",
+            "Dropping incomplete streamed tool call: id='{}', name='{}', "
+            "arguments_len={}",
             pending.id, pending.name, pending.arguments.size());
       }
       continue;

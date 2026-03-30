@@ -590,7 +590,8 @@ void register_rpc_handlers(
         auto result = execute_agent_request(
             params, client,
             [&server, &client, logger, session_key, idempotency_key,
-             &streamed_text, &accumulated_text](const quantclaw::AgentEvent& event) {
+             &streamed_text,
+             &accumulated_text](const quantclaw::AgentEvent& event) {
               RpcEvent rpc_event;
 
               if (event.type == events::kTextDelta) {
