@@ -23,6 +23,7 @@
 #include "quantclaw/gateway/gateway_server.hpp"
 #include "quantclaw/gateway/protocol.hpp"
 #include "quantclaw/plugins/plugin_system.hpp"
+#include "quantclaw/platform/process.hpp"
 #include "quantclaw/providers/provider_registry.hpp"
 #include "quantclaw/security/exec_approval.hpp"
 #include "quantclaw/session/session_manager.hpp"
@@ -934,12 +935,13 @@ void register_rpc_handlers(
         [skill_loader, &config,
          logger](const nlohmann::json& /*params*/,
                  ClientConnection& /*client*/) -> nlohmann::json {
-          const char* home = std::getenv("HOME");
-          std::string home_str = home ? home : "/tmp";
-          auto workspace_path = std::filesystem::path(home_str) /
+          auto workspace_path =
+              std::filesystem::path(quantclaw::platform::home_directory()) /
                                 ".quantclaw/agents/main/workspace";
           std::string managed_dir =
-              (std::filesystem::path(home_str) / ".quantclaw/skills").string();
+              (std::filesystem::path(quantclaw::platform::home_directory()) /
+               ".quantclaw" / "skills")
+                  .string();
 
           auto skills = skill_loader->LoadSkills(config.skills, workspace_path);
 
@@ -1581,10 +1583,8 @@ void register_rpc_handlers(
 
   // --- memory.status ---
   {
-    const char* home = std::getenv("HOME");
-    std::string home_str = home ? home : "/tmp";
-    auto workspace =
-        std::filesystem::path(home_str) / ".quantclaw/agents/main/workspace";
+    auto workspace = std::filesystem::path(quantclaw::platform::home_directory()) /
+                     ".quantclaw/agents/main/workspace";
 
     server.RegisterHandler(
         methods::kMemoryStatus,

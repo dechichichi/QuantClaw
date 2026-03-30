@@ -143,6 +143,7 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
   auto tool_registry = std::make_shared<quantclaw::ToolRegistry>(logger_);
   tool_registry->RegisterBuiltinTools();
   tool_registry->RegisterChainTool();
+  tool_registry->SetWorkspace(workspace_dir.string());
 
   // Discover and register MCP tools
   auto mcp_tool_manager =

@@ -203,8 +203,41 @@ TEST_F(ConfigTest, ExpandHome) {
   std::string expanded = quantclaw::QuantClawConfig::ExpandHome(path);
 
   EXPECT_NE(expanded.substr(0, 2), "~/");
-  EXPECT_TRUE(expanded.find("/test/path") != std::string::npos);
+  auto expanded_path = std::filesystem::path(expanded);
+  EXPECT_EQ(expanded_path.filename().string(), "path");
+  EXPECT_EQ(expanded_path.parent_path().filename().string(), "test");
 }
+
+#ifdef _WIN32
+TEST_F(ConfigTest, ExpandHomeUsesUserProfileWhenHomeMissing) {
+  auto get_or_empty = [](const char* name) -> std::string {
+    const char* value = std::getenv(name);
+    return value ? value : "";
+  };
+
+  const std::string orig_home = get_or_empty("HOME");
+  const std::string orig_userprofile = get_or_empty("USERPROFILE");
+  auto fake_home = test_dir_ / "win-home";
+
+  test_unsetenv("HOME");
+  test_setenv("USERPROFILE", fake_home.string().c_str());
+
+  std::string expanded = quantclaw::QuantClawConfig::ExpandHome("~/config.json");
+
+  if (!orig_home.empty()) {
+    test_setenv("HOME", orig_home.c_str());
+  } else {
+    test_unsetenv("HOME");
+  }
+  if (!orig_userprofile.empty()) {
+    test_setenv("USERPROFILE", orig_userprofile.c_str());
+  } else {
+    test_unsetenv("USERPROFILE");
+  }
+
+  EXPECT_EQ(expanded, (fake_home / "config.json").string());
+}
+#endif
 
 TEST_F(ConfigTest, DefaultConfigPath) {
   std::string path = quantclaw::QuantClawConfig::DefaultConfigPath();

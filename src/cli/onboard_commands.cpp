@@ -14,6 +14,7 @@
 #include "quantclaw/builtin_skills.hpp"
 #include "quantclaw/config.hpp"
 #include "quantclaw/gateway/gateway_client.hpp"
+#include "quantclaw/platform/process.hpp"
 #include "quantclaw/platform/service.hpp"
 
 namespace quantclaw::cli {
@@ -356,8 +357,7 @@ int OnboardCommands::SetupDaemon() {
 // Returns 0 if at least one skill was installed or all were already present,
 // 1 if every skill installation attempt failed.
 int OnboardCommands::SetupSkills() {
-  const char* home = std::getenv("HOME");
-  std::string home_str = home ? home : "/tmp";
+  std::string home_str = quantclaw::platform::home_directory();
   auto skills_dir = std::filesystem::path(home_str) / ".quantclaw" / "skills";
 
   try {
@@ -416,8 +416,7 @@ int OnboardCommands::SetupSkills() {
 int OnboardCommands::VerifySetup() {
   std::cout << "\nVerifying setup..." << std::endl;
 
-  const char* home = std::getenv("HOME");
-  std::string home_str = home ? home : "/tmp";
+  std::string home_str = quantclaw::platform::home_directory();
 
   // Check config
   std::string config_path = QuantClawConfig::DefaultConfigPath();
@@ -482,8 +481,7 @@ int OnboardCommands::VerifySetup() {
 }
 
 bool OnboardCommands::CreateWorkspaceDirectory() {
-  const char* home = std::getenv("HOME");
-  std::string home_str = home ? home : "/tmp";
+  std::string home_str = quantclaw::platform::home_directory();
 
   try {
     // QuantClaw agent ID: main
@@ -601,8 +599,7 @@ bool OnboardCommands::CreateConfigFile(const std::string& model, int port,
 
 bool OnboardCommands::CreateWorkspaceFile(const std::string& filename,
                                           const std::string& content) {
-  const char* home = std::getenv("HOME");
-  std::string home_str = home ? home : "/tmp";
+  std::string home_str = quantclaw::platform::home_directory();
   auto path = std::filesystem::path(home_str) /
               ".quantclaw/agents/main/workspace" / filename;
 
