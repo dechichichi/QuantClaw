@@ -11,6 +11,12 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -1288,13 +1294,22 @@ int main(int argc, char* argv[]) {
          if (sub == "auth") {
            quantclaw::cli::ModelAuthCommandContext ctx;
            ctx.logger = logger;
-           ctx.oauth_client =
+           ctx.openai_codex_client =
                std::make_shared<quantclaw::auth::OpenAICodexOAuthClient>(
                    logger);
-           ctx.store = quantclaw::auth::OpenAICodexAuthStore();
+           ctx.openai_codex_store = quantclaw::auth::OpenAICodexAuthStore();
+           ctx.github_copilot_client =
+               std::make_shared<quantclaw::auth::GitHubCopilotLoginClient>(
+                   logger);
+           ctx.github_copilot_store = quantclaw::auth::GitHubCopilotAuthStore();
            ctx.in = &std::cin;
            ctx.out = &std::cout;
            ctx.err = &std::cerr;
+#ifdef _WIN32
+           ctx.stdin_is_tty = _isatty(_fileno(stdin)) != 0;
+#else
+           ctx.stdin_is_tty = isatty(fileno(stdin)) != 0;
+#endif
            return quantclaw::cli::HandleModelsAuthCommand(sub_args, ctx);
          }
 

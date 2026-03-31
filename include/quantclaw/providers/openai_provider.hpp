@@ -27,10 +27,14 @@ class OpenAIProvider : public LLMProvider {
   std::string GetProviderName() const override;
   std::vector<std::string> GetSupportedModels() const override;
 
- private:
+ protected:
+  virtual std::string ResolveApiKey() const;
+  virtual std::string ResolveBaseUrl() const;
+  virtual std::string ProviderId() const;
   std::string MakeApiRequest(const std::string& json_payload) const;
   CurlSlist CreateHeaders() const;
 
+ private:
   std::string api_key_;
   std::string base_url_;
   int timeout_;

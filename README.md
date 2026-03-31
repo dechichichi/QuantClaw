@@ -281,6 +281,31 @@ OAuth credentials are stored in `~/.quantclaw/auth/openai-codex.json` and are re
 
 If you prefer the standard OpenAI API key flow, keep using the `openai` provider with `apiKey` / `apiKeyEnv`.
 
+### GitHub Copilot Login
+
+QuantClaw also supports GitHub Copilot through a dedicated `github-copilot` provider with GitHub device login:
+
+```bash
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+
+# Convenience alias
+quantclaw models auth login-github-copilot
+```
+
+Long-lived GitHub credentials are stored in `~/.quantclaw/auth/github-copilot.json`, and short-lived Copilot API tokens are cached in `~/.quantclaw/auth/github-copilot.token-cache.json`. At runtime, QuantClaw prefers `COPILOT_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN`, and only falls back to the local auth store if none of those are set.
+
+To use the provider, point your model at `github-copilot/...`, for example:
+
+```json
+{
+  "llm": {
+    "model": "github-copilot/gpt-4o"
+  }
+}
+```
+
 ### Log Retention
 
 QuantClaw enforces automatic log cleanup on every gateway startup to prevent disk exhaustion.

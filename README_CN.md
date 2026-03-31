@@ -281,6 +281,31 @@ OAuth 凭证会保存在 `~/.quantclaw/auth/openai-codex.json`，并在可用时
 
 如果你想继续使用标准 OpenAI API key 路径，仍然使用 `openai` provider + `apiKey` / `apiKeyEnv` 即可。
 
+### GitHub Copilot 登录
+
+QuantClaw 也支持通过独立的 `github-copilot` provider 接入 GitHub Copilot，登录方式采用 GitHub device flow：
+
+```bash
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+
+# 快捷别名
+quantclaw models auth login-github-copilot
+```
+
+长期 GitHub 凭证会保存在 `~/.quantclaw/auth/github-copilot.json`，短期 Copilot API token 会缓存在 `~/.quantclaw/auth/github-copilot.token-cache.json`。运行时会优先读取 `COPILOT_GITHUB_TOKEN`，然后是 `GH_TOKEN`、`GITHUB_TOKEN`，如果都没有再回退到本地 auth store。
+
+要使用这条路径，把模型配置成 `github-copilot/...`，例如：
+
+```json
+{
+  "llm": {
+    "model": "github-copilot/gpt-4o"
+  }
+}
+```
+
 ### 日志保存策略
 
 QuantClaw 在每次网关启动时自动清理过期日志，防止磁盘被撑爆。

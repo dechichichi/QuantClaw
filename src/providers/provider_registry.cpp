@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "quantclaw/auth/github_copilot_auth.hpp"
 #include "quantclaw/auth/openai_codex_auth.hpp"
 #include "quantclaw/providers/anthropic_provider.hpp"
+#include "quantclaw/providers/github_copilot_provider.hpp"
 #include "quantclaw/providers/openai_codex_provider.hpp"
 #include "quantclaw/providers/openai_provider.hpp"
 
@@ -58,6 +60,17 @@ void ProviderRegistry::RegisterBuiltinFactories() {
         auth::OpenAICodexAuthStore(), auth_client, logger);
     return std::make_shared<OpenAICodexProvider>(url, entry.timeout, logger,
                                                  token_source);
+  });
+
+  RegisterFactory("github-copilot", [](const ProviderEntry& entry,
+                                       std::shared_ptr<spdlog::logger> logger) {
+    auto token_client =
+        std::make_shared<auth::GitHubCopilotTokenClient>(logger);
+    auto resolver = std::make_shared<auth::GitHubCopilotRuntimeResolver>(
+        auth::GitHubCopilotAuthStore(), auth::GitHubCopilotTokenCache(),
+        token_client, logger);
+    const int timeout = entry.timeout > 0 ? entry.timeout : 30;
+    return std::make_shared<GitHubCopilotProvider>(timeout, logger, resolver);
   });
 
   // Anthropic

@@ -139,6 +139,31 @@ Credentials are stored in `~/.quantclaw/auth/openai-codex.json` and refreshed au
 
 Use `openai` when you want direct API-key access, and `openai-codex` when you want ChatGPT/Codex OAuth.
 
+### GitHub Copilot
+
+If you want to use GitHub Copilot-backed models, authenticate the dedicated `github-copilot` provider through GitHub device login:
+
+```bash
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+
+# Convenience alias
+quantclaw models auth login-github-copilot
+```
+
+Credentials are stored in `~/.quantclaw/auth/github-copilot.json`, and short-lived Copilot runtime tokens are cached in `~/.quantclaw/auth/github-copilot.token-cache.json`. Runtime token resolution prefers `COPILOT_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN`, and only falls back to the local auth store if no environment token is set.
+
+```json
+{
+  "llm": {
+    "model": "github-copilot/gpt-4o"
+  }
+}
+```
+
+Use the `github-copilot/...` namespace when you want account-backed GitHub Copilot access.
+
 ## Gateway Configuration (`gateway`)
 
 ```json

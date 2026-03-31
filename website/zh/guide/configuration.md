@@ -132,6 +132,31 @@ quantclaw models auth logout --provider openai-codex
 
 需要直接 API key 时继续使用 `openai`；需要 ChatGPT / Codex OAuth 时使用 `openai-codex`。
 
+### GitHub Copilot
+
+如果你想使用 GitHub Copilot 支持的模型，可以通过独立的 `github-copilot` provider 走 GitHub device login：
+
+```bash
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+
+# 快捷别名
+quantclaw models auth login-github-copilot
+```
+
+长期凭证会保存在 `~/.quantclaw/auth/github-copilot.json`，短期 Copilot runtime token 会缓存在 `~/.quantclaw/auth/github-copilot.token-cache.json`。运行时会优先读取 `COPILOT_GITHUB_TOKEN`，然后是 `GH_TOKEN`、`GITHUB_TOKEN`，如果都没有再回退到本地 auth store。
+
+```json
+{
+  "llm": {
+    "model": "github-copilot/gpt-4o"
+  }
+}
+```
+
+当你需要账号型 GitHub Copilot 访问时，使用 `github-copilot/...` 命名空间。
+
 ## 网关配置（`gateway`）
 
 ```json

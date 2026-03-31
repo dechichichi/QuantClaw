@@ -14,40 +14,17 @@
 
 #include <spdlog/spdlog.h>
 
+#include "quantclaw/auth/provider_auth.hpp"
+
 namespace quantclaw::auth {
 
-struct OpenAICodexAuthRecord {
-  std::string provider = "openai-codex";
-  std::string access_token;
-  std::string refresh_token;
-  std::string token_type = "Bearer";
-  std::string scope;
-  std::string account_id;
-  std::string email;
-  std::int64_t expires_at = 0;
+using OpenAICodexAuthRecord = ProviderAuthRecord;
 
-  bool HasUsableAccessToken(std::int64_t now_epoch_seconds,
-                            int leeway_seconds = 60) const;
-  bool CanRefresh() const;
-};
-
-class OpenAICodexAuthStore {
+class OpenAICodexAuthStore : public ProviderAuthStore {
  public:
   explicit OpenAICodexAuthStore(std::filesystem::path path = DefaultPath());
 
   static std::filesystem::path DefaultPath();
-
-  const std::filesystem::path& path() const {
-    return path_;
-  }
-
-  bool Exists() const;
-  std::optional<OpenAICodexAuthRecord> Load() const;
-  void Save(const OpenAICodexAuthRecord& record) const;
-  bool Clear() const;
-
- private:
-  std::filesystem::path path_;
 };
 
 struct OpenAICodexCallbackBindTarget {
@@ -80,12 +57,6 @@ class OpenAICodexOAuthClient {
 
  private:
   std::shared_ptr<spdlog::logger> logger_;
-};
-
-class BearerTokenSource {
- public:
-  virtual ~BearerTokenSource() = default;
-  virtual std::string ResolveAccessToken() = 0;
 };
 
 class OpenAICodexCredentialResolver : public BearerTokenSource {

@@ -156,6 +156,19 @@ TEST(ProviderRegistryTest, OpenAICodexBuiltinFactoryCreatesProvider) {
   EXPECT_EQ(provider->GetProviderName(), "openai-codex");
 }
 
+TEST(ProviderRegistryTest, GitHubCopilotBuiltinFactoryCreatesProvider) {
+  auto reg = std::make_unique<ProviderRegistry>(make_logger("providers"));
+  reg->RegisterBuiltinFactories();
+
+  ProviderEntry entry;
+  entry.id = "github-copilot";
+  reg->AddProvider(entry);
+
+  auto provider = reg->GetProvider("github-copilot");
+  ASSERT_NE(provider, nullptr);
+  EXPECT_EQ(provider->GetProviderName(), "github-copilot");
+}
+
 TEST(ProviderRegistryTest, GetProviderForModel) {
   auto reg = std::make_unique<ProviderRegistry>(make_logger("providers"));
   reg->RegisterBuiltinFactories();
