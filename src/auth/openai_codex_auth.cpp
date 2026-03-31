@@ -355,6 +355,83 @@ std::string BuildOpenAICodexAuthorizeUrl(const std::string& state,
   return out.str();
 }
 
+std::optional<OpenAICodexCallbackBindTarget>
+ParseOpenAICodexCallbackBindTarget(std::string_view redirect_uri) {
+  const size_t scheme_sep = redirect_uri.find("://");
+  if (scheme_sep == std::string_view::npos) {
+    return std::nullopt;
+  }
+
+  const size_t authority_start = scheme_sep + 3;
+  const size_t path_start = redirect_uri.find('/', authority_start);
+  std::string_view authority =
+      redirect_uri.substr(authority_start, path_start - authority_start);
+  if (authority.empty()) {
+    return std::nullopt;
+  }
+
+  std::string host;
+  int port = 0;
+  if (authority.front() == '[') {
+    const size_t bracket_end = authority.find(']');
+    if (bracket_end == std::string_view::npos) {
+      return std::nullopt;
+    }
+    host = std::string(authority.substr(1, bracket_end - 1));
+    if (bracket_end + 1 < authority.size()) {
+      if (authority[bracket_end + 1] != ':') {
+        return std::nullopt;
+      }
+      auto port_view = authority.substr(bracket_end + 2);
+      if (port_view.empty()) {
+        return std::nullopt;
+      }
+      try {
+        port = std::stoi(std::string(port_view));
+      } catch (const std::exception&) {
+        return std::nullopt;
+      }
+    }
+  } else {
+    const size_t colon = authority.rfind(':');
+    if (colon == std::string_view::npos) {
+      host = std::string(authority);
+    } else {
+      host = std::string(authority.substr(0, colon));
+      auto port_view = authority.substr(colon + 1);
+      if (port_view.empty()) {
+        return std::nullopt;
+      }
+      try {
+        port = std::stoi(std::string(port_view));
+      } catch (const std::exception&) {
+        return std::nullopt;
+      }
+    }
+  }
+
+  if (host.empty()) {
+    return std::nullopt;
+  }
+
+  if (port == 0) {
+    const auto scheme = redirect_uri.substr(0, scheme_sep);
+    if (scheme == "http") {
+      port = 80;
+    } else if (scheme == "https") {
+      port = 443;
+    } else {
+      return std::nullopt;
+    }
+  }
+
+  if (port <= 0 || port > 65535) {
+    return std::nullopt;
+  }
+
+  return OpenAICodexCallbackBindTarget{std::move(host), port};
+}
+
 OpenAICodexOAuthClient::OpenAICodexOAuthClient(
     std::shared_ptr<spdlog::logger> logger)
     : logger_(std::move(logger)) {}
@@ -362,6 +439,9 @@ OpenAICodexOAuthClient::OpenAICodexOAuthClient(
 OpenAICodexAuthRecord
 OpenAICodexOAuthClient::LoginInteractive(std::istream& in, std::ostream& out) {
   const std::string redirect_uri = kDefaultRedirectUri;
+  const auto bind_target =
+      ParseOpenAICodexCallbackBindTarget(redirect_uri)
+          .value_or(OpenAICodexCallbackBindTarget{"127.0.0.1", 1455});
   const std::string state = random_urlsafe_string(24);
   const std::string code_verifier = random_urlsafe_string(48);
   const std::string code_challenge = sha256_base64url(code_verifier);
@@ -418,7 +498,9 @@ OpenAICodexOAuthClient::LoginInteractive(std::istream& in, std::ostream& out) {
     std::thread([&server]() { server.stop(); }).detach();
   });
 
-  std::thread server_thread([&server]() { server.listen("127.0.0.1", 1455); });
+  std::thread server_thread([&server, bind_target]() {
+    server.listen(bind_target.host.c_str(), bind_target.port);
+  });
 
   out << "OpenAI Codex login\n";
   if (!open_browser(auth_url)) {

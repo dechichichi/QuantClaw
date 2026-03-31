@@ -51,20 +51,28 @@ TEST(OpenAICodexProviderTest, ChatCompletionUsesBearerTokenAndParsesOutput) {
     auto body = nlohmann::json::parse(req.body);
     EXPECT_EQ(body.value("model", ""), "gpt-5");
     EXPECT_EQ(body.value("instructions", ""), "You are helpful.");
+    EXPECT_EQ(body.value("stream", false), true);
+    EXPECT_EQ(body.value("store", true), false);
+    EXPECT_FALSE(body.contains("temperature"));
+    EXPECT_FALSE(body.contains("max_output_tokens"));
     ASSERT_TRUE(body.contains("input"));
     ASSERT_TRUE(body["input"].is_array());
     ASSERT_FALSE(body["input"].empty());
 
-    nlohmann::json response = {
-        {"status", "completed"},
-        {"usage",
-         {{"input_tokens", 11}, {"output_tokens", 7}, {"total_tokens", 18}}},
-        {"output",
-         {{{"type", "message"},
-           {"role", "assistant"},
-           {"content",
-            {{{"type", "output_text"}, {"text", "Hello from Codex"}}}}}}}};
-    res.set_content(response.dump(), "application/json");
+    res.set_chunked_content_provider(
+        "text/event-stream", [](size_t /*offset*/, httplib::DataSink& sink) {
+          const char event1[] =
+              "data: {\"type\":\"response.output_text.delta\",\"delta\":"
+              "\"Hello from Codex\"}\n\n";
+          const char event2[] =
+              "data: {\"type\":\"response.completed\",\"response\":"
+              "{\"status\":\"completed\",\"usage\":{\"input_tokens\":11,"
+              "\"output_tokens\":7,\"total_tokens\":18}}}\n\n";
+          sink.write(event1, sizeof(event1) - 1);
+          sink.write(event2, sizeof(event2) - 1);
+          sink.done();
+          return true;
+        });
   });
 
   std::thread server_thread([&]() {
@@ -103,6 +111,13 @@ TEST(OpenAICodexProviderTest, StreamingParsesTextDeltas) {
   server.Post("/codex/responses", [&](const httplib::Request& req,
                                       httplib::Response& res) {
     EXPECT_EQ(req.get_header_value("Authorization"), "Bearer oauth-token");
+    auto body = nlohmann::json::parse(req.body);
+    EXPECT_EQ(body.value("model", ""), "gpt-5");
+    EXPECT_EQ(body.value("instructions", ""), "");
+    EXPECT_EQ(body.value("stream", false), true);
+    EXPECT_EQ(body.value("store", true), false);
+    EXPECT_FALSE(body.contains("temperature"));
+    EXPECT_FALSE(body.contains("max_output_tokens"));
     res.set_chunked_content_provider(
         "text/event-stream", [](size_t /*offset*/, httplib::DataSink& sink) {
           const char event1[] =

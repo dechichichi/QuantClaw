@@ -17,12 +17,6 @@
 namespace quantclaw {
 namespace {
 
-size_t write_callback(void* contents, size_t size, size_t nmemb,
-                      std::string* out) {
-  out->append(static_cast<char*>(contents), size * nmemb);
-  return size * nmemb;
-}
-
 nlohmann::json
 convert_tools_to_responses(const std::vector<nlohmann::json>& tools) {
   nlohmann::json converted = nlohmann::json::array();
@@ -101,57 +95,6 @@ nlohmann::json build_input_items(const std::vector<Message>& messages,
   return input;
 }
 
-std::string response_text_from_output(const nlohmann::json& output) {
-  std::string text;
-  if (!output.is_array()) {
-    return text;
-  }
-
-  for (const auto& item : output) {
-    if (!item.is_object() || item.value("type", "") != "message") {
-      continue;
-    }
-    if (item.value("role", "") != "assistant") {
-      continue;
-    }
-    if (!item.contains("content") || !item["content"].is_array()) {
-      continue;
-    }
-    for (const auto& part : item["content"]) {
-      const std::string type = part.value("type", "");
-      if (type == "output_text" || type == "text") {
-        text += part.value("text", "");
-      }
-    }
-  }
-  return text;
-}
-
-std::vector<ToolCall>
-response_tool_calls_from_output(const nlohmann::json& output) {
-  std::vector<ToolCall> tool_calls;
-  if (!output.is_array()) {
-    return tool_calls;
-  }
-
-  for (const auto& item : output) {
-    if (!item.is_object() || item.value("type", "") != "function_call") {
-      continue;
-    }
-
-    ToolCall tool_call;
-    tool_call.id = item.value("call_id", item.value("id", ""));
-    tool_call.name = item.value("name", "");
-    auto args = item.value("arguments", std::string{});
-    tool_call.arguments = nlohmann::json::parse(args, nullptr, false);
-    if (tool_call.arguments.is_discarded()) {
-      tool_call.arguments = nlohmann::json::object();
-    }
-    tool_calls.push_back(std::move(tool_call));
-  }
-  return tool_calls;
-}
-
 void populate_usage(const nlohmann::json& response_json,
                     ChatCompletionResponse* response) {
   if (!response_json.contains("usage") || !response_json["usage"].is_object()) {
@@ -166,6 +109,7 @@ void populate_usage(const nlohmann::json& response_json,
 struct StreamContext {
   std::function<void(const ChatCompletionResponse&)> callback;
   std::string buffer;
+  std::string raw_body;
   std::unordered_map<std::string, ToolCall> pending_tool_calls;
 };
 
@@ -227,6 +171,9 @@ void handle_stream_event(const nlohmann::json& event, StreamContext* ctx) {
     ChatCompletionResponse end;
     end.is_stream_end = true;
     end.finish_reason = type == "response.incomplete" ? "length" : "stop";
+    if (event.contains("response") && event["response"].is_object()) {
+      populate_usage(event["response"], &end);
+    }
     ctx->callback(end);
   }
 }
@@ -234,7 +181,10 @@ void handle_stream_event(const nlohmann::json& event, StreamContext* ctx) {
 size_t stream_write_callback(void* contents, size_t size, size_t nmemb,
                              void* userp) {
   auto* ctx = static_cast<StreamContext*>(userp);
-  ctx->buffer.append(static_cast<char*>(contents), size * nmemb);
+  const auto* chars = static_cast<char*>(contents);
+  const size_t total = size * nmemb;
+  ctx->raw_body.append(chars, total);
+  ctx->buffer.append(chars, total);
 
   size_t pos = 0;
   while ((pos = ctx->buffer.find("\n\n")) != std::string::npos) {
@@ -265,16 +215,21 @@ size_t stream_write_callback(void* contents, size_t size, size_t nmemb,
   return size * nmemb;
 }
 
-std::string resolve_finish_reason(const nlohmann::json& response_json,
-                                  bool has_tool_calls) {
-  if (has_tool_calls) {
-    return "tool_calls";
+nlohmann::json build_codex_payload(const ChatCompletionRequest& request) {
+  nlohmann::json payload;
+  std::string instructions;
+
+  payload["model"] = request.model;
+  payload["store"] = false;
+  payload["stream"] = true;
+  payload["input"] = build_input_items(request.messages, &instructions);
+  payload["instructions"] = instructions;
+
+  if (!request.tools.empty()) {
+    payload["tools"] = convert_tools_to_responses(request.tools);
   }
-  const std::string status = response_json.value("status", "");
-  if (status == "incomplete") {
-    return "length";
-  }
-  return "stop";
+
+  return payload;
 }
 
 }  // namespace
@@ -291,34 +246,32 @@ OpenAICodexProvider::OpenAICodexProvider(
 
 ChatCompletionResponse
 OpenAICodexProvider::ChatCompletion(const ChatCompletionRequest& request) {
-  nlohmann::json payload;
-  std::string instructions;
-  payload["model"] = request.model;
-  payload["store"] = false;
-  payload["stream"] = false;
-  payload["input"] = build_input_items(request.messages, &instructions);
-  if (!instructions.empty()) {
-    payload["instructions"] = instructions;
-  }
-  payload["temperature"] = request.temperature;
-  payload["max_output_tokens"] = request.max_tokens;
-  if (!request.tools.empty()) {
-    payload["tools"] = convert_tools_to_responses(request.tools);
-    payload["tool_choice"] = "auto";
-    payload["parallel_tool_calls"] = true;
-  }
+  ChatCompletionResponse aggregated;
+  StreamContext ctx;
+  ctx.callback = [&](const ChatCompletionResponse& chunk) {
+    aggregated.content += chunk.content;
+    aggregated.tool_calls.insert(aggregated.tool_calls.end(),
+                                 chunk.tool_calls.begin(),
+                                 chunk.tool_calls.end());
+    if (chunk.is_stream_end) {
+      aggregated.is_stream_end = true;
+      aggregated.finish_reason = chunk.finish_reason;
+      aggregated.usage = chunk.usage;
+    } else if (!chunk.finish_reason.empty()) {
+      aggregated.finish_reason = chunk.finish_reason;
+    }
+  };
 
-  std::string response_body;
   CurlHandle curl;
   auto headers = CreateHeaders(token_source_->ResolveAccessToken());
   const std::string endpoint = ResolveEndpoint();
+  const std::string body = build_codex_payload(request).dump();
 
   curl_easy_setopt(curl, CURLOPT_URL, endpoint.c_str());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
-  const std::string body = payload.dump();
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, stream_write_callback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_);
 
   CURLcode code = curl_easy_perform(curl);
@@ -333,49 +286,27 @@ OpenAICodexProvider::ChatCompletion(const ChatCompletionRequest& request) {
   curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
   if (http_code >= 400) {
     throw ProviderError(
-        ClassifyHttpError(static_cast<int>(http_code), response_body),
-        static_cast<int>(http_code), response_body, "openai-codex");
+        ClassifyHttpError(static_cast<int>(http_code), ctx.raw_body),
+        static_cast<int>(http_code), ctx.raw_body, "openai-codex");
   }
 
-  auto response_json = nlohmann::json::parse(response_body);
-  ChatCompletionResponse response;
-  response.content = response_text_from_output(
-      response_json.value("output", nlohmann::json::array()));
-  response.tool_calls = response_tool_calls_from_output(
-      response_json.value("output", nlohmann::json::array()));
-  response.finish_reason =
-      resolve_finish_reason(response_json, !response.tool_calls.empty());
-  populate_usage(response_json, &response);
-  return response;
+  if (aggregated.finish_reason.empty()) {
+    aggregated.finish_reason =
+        aggregated.tool_calls.empty() ? "stop" : "tool_calls";
+  }
+  return aggregated;
 }
 
 void OpenAICodexProvider::ChatCompletionStream(
     const ChatCompletionRequest& request,
     std::function<void(const ChatCompletionResponse&)> callback) {
-  nlohmann::json payload;
-  std::string instructions;
-  payload["model"] = request.model;
-  payload["store"] = false;
-  payload["stream"] = true;
-  payload["input"] = build_input_items(request.messages, &instructions);
-  if (!instructions.empty()) {
-    payload["instructions"] = instructions;
-  }
-  payload["temperature"] = request.temperature;
-  payload["max_output_tokens"] = request.max_tokens;
-  if (!request.tools.empty()) {
-    payload["tools"] = convert_tools_to_responses(request.tools);
-    payload["tool_choice"] = "auto";
-    payload["parallel_tool_calls"] = true;
-  }
-
   StreamContext ctx;
   ctx.callback = std::move(callback);
 
   CurlHandle curl;
   auto headers = CreateHeaders(token_source_->ResolveAccessToken());
   const std::string endpoint = ResolveEndpoint();
-  const std::string body = payload.dump();
+  const std::string body = build_codex_payload(request).dump();
 
   curl_easy_setopt(curl, CURLOPT_URL, endpoint.c_str());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
@@ -395,11 +326,9 @@ void OpenAICodexProvider::ChatCompletionStream(
   long http_code = 0;
   curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
   if (http_code >= 400) {
-    throw ProviderError(ClassifyHttpError(static_cast<int>(http_code), ""),
-                        static_cast<int>(http_code),
-                        "OpenAI Codex streaming API error (HTTP " +
-                            std::to_string(http_code) + ")",
-                        "openai-codex");
+    throw ProviderError(
+        ClassifyHttpError(static_cast<int>(http_code), ctx.raw_body),
+        static_cast<int>(http_code), ctx.raw_body, "openai-codex");
   }
 }
 

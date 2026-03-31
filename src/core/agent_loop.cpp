@@ -137,6 +137,8 @@ AgentLoop::AgentLoop(std::shared_ptr<MemoryManager> memory_manager,
 }
 
 std::shared_ptr<LLMProvider> AgentLoop::resolve_provider() {
+  resolved_request_model_ = agent_config_.model;
+
   // If failover resolver is available, use it for profile rotation + fallback
   if (failover_resolver_) {
     auto resolved =
@@ -144,8 +146,7 @@ std::shared_ptr<LLMProvider> AgentLoop::resolve_provider() {
     if (resolved) {
       last_provider_id_ = resolved->provider_id;
       last_profile_id_ = resolved->profile_id;
-      // Update model to the resolved model name (may differ if fallback)
-      agent_config_.model = resolved->model;
+      resolved_request_model_ = resolved->model;
       if (resolved->is_fallback) {
         logger_->info("Using fallback model: {}/{}", resolved->provider_id,
                       resolved->model);
@@ -166,8 +167,7 @@ std::shared_ptr<LLMProvider> AgentLoop::resolve_provider() {
   if (provider) {
     last_provider_id_ = ref.provider;
     last_profile_id_ = "";
-    // Update model to stripped name (without provider prefix)
-    agent_config_.model = ref.model;
+    resolved_request_model_ = ref.model;
     return provider;
   }
 
@@ -209,7 +209,7 @@ std::vector<Message> AgentLoop::ProcessMessage(
   // Create LLM request
   ChatCompletionRequest request;
   request.messages = assembled.messages;
-  request.model = agent_config_.model;
+  request.model = resolved_request_model_;
   request.temperature = agent_config_.temperature;
   request.max_tokens = agent_config_.max_tokens;
   request.thinking = agent_config_.thinking;
@@ -357,7 +357,7 @@ std::vector<Message> AgentLoop::ProcessMessage(
         if (new_provider && new_provider != provider) {
           provider = new_provider;
           // Update the request model to the newly resolved model
-          request.model = agent_config_.model;
+          request.model = resolved_request_model_;
           iterations++;
           continue;
         }
@@ -425,7 +425,7 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
 
   ChatCompletionRequest request;
   request.messages = assembled.messages;
-  request.model = agent_config_.model;
+  request.model = resolved_request_model_;
   request.temperature = agent_config_.temperature;
   request.max_tokens = agent_config_.max_tokens;
   request.stream = true;
@@ -649,7 +649,7 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
         auto new_provider = resolve_provider();
         if (new_provider && new_provider != provider) {
           provider = new_provider;
-          request.model = agent_config_.model;
+          request.model = resolved_request_model_;
           iterations++;
           continue;
         }

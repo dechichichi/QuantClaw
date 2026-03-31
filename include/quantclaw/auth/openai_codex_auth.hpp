@@ -10,6 +10,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <string_view>
 
 #include <spdlog/spdlog.h>
 
@@ -49,9 +50,16 @@ class OpenAICodexAuthStore {
   std::filesystem::path path_;
 };
 
+struct OpenAICodexCallbackBindTarget {
+  std::string host;
+  int port = 0;
+};
+
 std::string BuildOpenAICodexAuthorizeUrl(const std::string& state,
                                          const std::string& code_challenge,
                                          const std::string& redirect_uri);
+std::optional<OpenAICodexCallbackBindTarget>
+ParseOpenAICodexCallbackBindTarget(std::string_view redirect_uri);
 
 class OpenAICodexOAuthClient {
  public:

@@ -62,6 +62,24 @@ TEST(OpenAICodexAuthTest, BuildAuthorizeUrlIncludesExpectedParameters) {
   EXPECT_NE(url.find("codex_cli_simplified_flow=true"), std::string::npos);
 }
 
+TEST(OpenAICodexAuthTest, ParseCallbackBindTargetUsesRedirectHostAndPort) {
+  auto bind_target =
+      ParseOpenAICodexCallbackBindTarget("http://localhost:1455/auth/callback");
+
+  ASSERT_TRUE(bind_target.has_value());
+  EXPECT_EQ(bind_target->host, "localhost");
+  EXPECT_EQ(bind_target->port, 1455);
+}
+
+TEST(OpenAICodexAuthTest, ParseCallbackBindTargetSupportsIpv4Loopback) {
+  auto bind_target = ParseOpenAICodexCallbackBindTarget(
+      "http://127.0.0.1:18888/auth/callback");
+
+  ASSERT_TRUE(bind_target.has_value());
+  EXPECT_EQ(bind_target->host, "127.0.0.1");
+  EXPECT_EQ(bind_target->port, 18888);
+}
+
 TEST(OpenAICodexAuthTest, StoreRoundTripsRecord) {
   const auto dir = test::MakeTestDir("openai_codex_auth_store");
   const auto path = dir / "openai-codex.json";

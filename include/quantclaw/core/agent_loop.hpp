@@ -145,6 +145,7 @@ class AgentLoop : public Noncopyable {
   // Tracking last resolved provider/profile for failover reporting
   std::string last_provider_id_;
   std::string last_profile_id_;
+  std::string resolved_request_model_;
 };
 
 }  // namespace quantclaw

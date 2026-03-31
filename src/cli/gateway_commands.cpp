@@ -188,7 +188,6 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
 
   // Resolve the configured model to get initial provider
   auto model_ref = provider_registry->ResolveModel(config.agent.model);
-  config.agent.model = model_ref.model;  // strip prefix before passing to API
   auto llm_provider = provider_registry->GetProviderForModel(model_ref);
   if (!llm_provider) {
     logger_->error("Failed to resolve provider for model: {}",
