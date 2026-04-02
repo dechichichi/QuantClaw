@@ -60,6 +60,7 @@ struct ChatCompletionResponse {
   std::string finish_reason;
   bool is_stream_end = false;
   TokenUsage usage;
+  std::string reasoning_content;
 };
 
 class LLMProvider {
