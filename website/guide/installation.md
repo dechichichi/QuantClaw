@@ -180,61 +180,61 @@ REM Then configure with toolchain
 cmake .. -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake
 ```
 
-#### Gateway Service Setup (解决权限问题)
+#### Gateway Service Setup (Resolving Permission Issues)
 
-Windows 环境下，Gateway 服务启动需要特殊处理：
+Gateway service startup on Windows requires special handling:
 
-**方案一：使用计划任务（推荐）**
+**Option 1: Using Task Scheduler (Recommended)**
 
 ```powershell
-# 以管理员身份运行 PowerShell
+# Run PowerShell as Administrator
 cd path\to\QuantClaw
 powershell -ExecutionPolicy Bypass -File scripts\gateway-setup-windows.ps1
 ```
 
-此脚本会：
-- ✅ 创建计划任务（开机自动启动）
-- ✅ 生成启动辅助脚本
-- ✅ 创建默认配置文件
-- ✅ 设置日志目录
+This script will:
+- ✅ Create a scheduled task (auto-start on boot)
+- ✅ Generate startup helper scripts
+- ✅ Create default configuration file
+- ✅ Set up log directory
 
-**方案二：手动启动（无需管理员权限）**
+**Option 2: Manual Startup (No Admin Required)**
 
 ```batch
-REM 双击运行或在命令行执行
+REM Double-click or run from command line
 scripts\gateway-manual.bat
 
-REM 或直接运行
+REM Or run directly
 build\Release\quantclaw.exe gateway run
 ```
 
-**方案三：WSL2 替代方案**
+**Option 3: WSL2 Alternative**
 
-如果遇到 Windows 权限问题，推荐使用 WSL2：
+If you encounter Windows permission issues, WSL2 is recommended:
 
 ```powershell
-# 安装 WSL2
+# Install WSL2
 wsl --install
 
-# 在 WSL2 中使用 Linux 安装方式
+# Use Linux installation in WSL2
 wsl
 cd ~/QuantClaw
 # ... follow Linux build steps
 ```
 
-#### 常见问题
+#### Troubleshooting
 
-**Q: `gateway install` 命令失败？**
+**Q: `gateway install` command fails?**
 
-A: Windows 上的 `gateway install` 当前仅创建后台进程，不会自动创建计划任务。请使用上述方案一或方案二。
+A: On Windows, `gateway install` currently only creates a background process and does not automatically create a scheduled task. Please use Option 1 or Option 2 above.
 
-**Q: 端口被占用？**
+**Q: Port is already in use?**
 
-A: 修改配置文件 `~\.quantclaw\quantclaw.json` 中的 `gateway.port` 值。
+A: Modify the `gateway.port` value in the configuration file `~\.quantclaw\quantclaw.json`.
 
-**Q: 杀毒软件拦截？**
+**Q: Antivirus blocking the application?**
 
-A: 将 `quantclaw.exe` 添加到杀毒软件白名单。
+A: Add `quantclaw.exe` to your antivirus software's whitelist.
 
 #### Windows Compatibility Notes
 

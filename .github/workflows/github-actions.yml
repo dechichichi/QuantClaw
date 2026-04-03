@@ -40,7 +40,7 @@ jobs:
         df -h
 
     - name: Set up ccache
-      uses: hendrikmuhs/ccache-action@v1.2.21
+      uses: hendrikmuhs/ccache-action@v1.2.22
       with:
         key: ${{ github.job }}-${{ matrix.compiler }}
         max-size: 500M
@@ -382,7 +382,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up ccache
-      uses: hendrikmuhs/ccache-action@v1.2.21
+      uses: hendrikmuhs/ccache-action@v1.2.22
       with:
         key: ${{ github.job }}-${{ matrix.sanitizer }}
         max-size: 300M
