@@ -17,6 +17,8 @@
 namespace quantclaw {
 namespace {
 
+constexpr size_t kMaxErrorBodyBytes = 128 * 1024;
+
 nlohmann::json
 convert_tools_to_responses(const std::vector<nlohmann::json>& tools) {
   nlohmann::json converted = nlohmann::json::array();
@@ -110,6 +112,7 @@ struct StreamContext {
   std::function<void(const ChatCompletionResponse&)> callback;
   std::string buffer;
   std::string raw_body;
+  std::string callback_error;
   std::unordered_map<std::string, ToolCall> pending_tool_calls;
 };
 
@@ -183,33 +186,41 @@ size_t stream_write_callback(void* contents, size_t size, size_t nmemb,
   auto* ctx = static_cast<StreamContext*>(userp);
   const auto* chars = static_cast<char*>(contents);
   const size_t total = size * nmemb;
-  ctx->raw_body.append(chars, total);
+  if (ctx->raw_body.size() < kMaxErrorBodyBytes) {
+    const size_t remaining = kMaxErrorBodyBytes - ctx->raw_body.size();
+    ctx->raw_body.append(chars, std::min(total, remaining));
+  }
   ctx->buffer.append(chars, total);
 
-  size_t pos = 0;
-  while ((pos = ctx->buffer.find("\n\n")) != std::string::npos) {
-    std::string chunk = ctx->buffer.substr(0, pos);
-    ctx->buffer.erase(0, pos + 2);
+  try {
+    size_t pos = 0;
+    while ((pos = ctx->buffer.find("\n\n")) != std::string::npos) {
+      std::string chunk = ctx->buffer.substr(0, pos);
+      ctx->buffer.erase(0, pos + 2);
 
-    std::stringstream lines(chunk);
-    std::string line;
-    std::string data;
-    while (std::getline(lines, line)) {
-      if (!line.empty() && line.back() == '\r') {
-        line.pop_back();
+      std::stringstream lines(chunk);
+      std::string line;
+      std::string data;
+      while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r') {
+          line.pop_back();
+        }
+        if (line.rfind("data: ", 0) == 0) {
+          data += line.substr(6);
+        }
       }
-      if (line.rfind("data: ", 0) == 0) {
-        data += line.substr(6);
+      if (data.empty() || data == "[DONE]") {
+        continue;
       }
+      auto event = nlohmann::json::parse(data, nullptr, false);
+      if (event.is_discarded()) {
+        continue;
+      }
+      handle_stream_event(event, ctx);
     }
-    if (data.empty() || data == "[DONE]") {
-      continue;
-    }
-    auto event = nlohmann::json::parse(data, nullptr, false);
-    if (event.is_discarded()) {
-      continue;
-    }
-    handle_stream_event(event, ctx);
+  } catch (const std::exception& e) {
+    ctx->callback_error = e.what();
+    return 0;
   }
 
   return size * nmemb;
@@ -275,6 +286,10 @@ OpenAICodexProvider::ChatCompletion(const ChatCompletionRequest& request) {
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_);
 
   CURLcode code = curl_easy_perform(curl);
+  if (!ctx.callback_error.empty()) {
+    throw ProviderError(ProviderErrorKind::kUnknown, 0, ctx.callback_error,
+                        "openai-codex");
+  }
   if (code != CURLE_OK) {
     throw ProviderError(ProviderErrorKind::kUnknown, 0,
                         "OpenAI Codex request failed: " +
@@ -316,6 +331,10 @@ void OpenAICodexProvider::ChatCompletionStream(
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_);
 
   CURLcode code = curl_easy_perform(curl);
+  if (!ctx.callback_error.empty()) {
+    throw ProviderError(ProviderErrorKind::kUnknown, 0, ctx.callback_error,
+                        "openai-codex");
+  }
   if (code != CURLE_OK) {
     throw ProviderError(ProviderErrorKind::kUnknown, 0,
                         "OpenAI Codex streaming request failed: " +

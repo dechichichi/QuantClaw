@@ -21,6 +21,9 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#ifdef _WIN32
+#include <shellapi.h>
+#endif
 #include "quantclaw/providers/curl_raii.hpp"
 #include "quantclaw/providers/provider_error.hpp"
 
@@ -61,6 +64,42 @@ std::string url_encode(std::string_view value) {
     }
   }
   return out.str();
+}
+
+int hex_value(char ch) {
+  if (ch >= '0' && ch <= '9') {
+    return ch - '0';
+  }
+  if (ch >= 'A' && ch <= 'F') {
+    return 10 + (ch - 'A');
+  }
+  if (ch >= 'a' && ch <= 'f') {
+    return 10 + (ch - 'a');
+  }
+  return -1;
+}
+
+std::string url_decode(std::string_view value) {
+  std::string out;
+  out.reserve(value.size());
+  for (size_t i = 0; i < value.size(); ++i) {
+    const char ch = value[i];
+    if (ch == '+') {
+      out.push_back(' ');
+      continue;
+    }
+    if (ch == '%' && i + 2 < value.size()) {
+      const int hi = hex_value(value[i + 1]);
+      const int lo = hex_value(value[i + 2]);
+      if (hi >= 0 && lo >= 0) {
+        out.push_back(static_cast<char>((hi << 4) | lo));
+        i += 2;
+        continue;
+      }
+    }
+    out.push_back(ch);
+  }
+  return out;
 }
 
 std::string base64url_encode(const unsigned char* data, size_t len) {
@@ -215,13 +254,16 @@ std::string html_response(const std::string& title, const std::string& body) {
 
 bool open_browser(const std::string& url) {
 #ifdef _WIN32
-  std::string cmd = "start \"\" \"" + url + "\"";
+  return reinterpret_cast<intptr_t>(
+             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr,
+                           SW_SHOWNORMAL)) > 32;
 #elif defined(__APPLE__)
   std::string cmd = "open \"" + url + "\"";
+  return std::system(cmd.c_str()) == 0;
 #else
   std::string cmd = "xdg-open \"" + url + "\"";
-#endif
   return std::system(cmd.c_str()) == 0;
+#endif
 }
 
 std::string extract_query_param(const std::string& query,
@@ -245,15 +287,18 @@ std::string extract_query_param(const std::string& query,
 
 std::string parse_manual_code(std::string input) {
   if (input.find("code=") == std::string::npos) {
-    return input;
+    return url_decode(input);
   }
   auto pos = input.find('?');
   std::string query = pos == std::string::npos ? input : input.substr(pos + 1);
-  return extract_query_param(query, "code");
+  return url_decode(extract_query_param(query, "code"));
 }
 
 }  // namespace
 
+std::string ParseOpenAICodexManualCode(std::string input) {
+  return parse_manual_code(std::move(input));
+}
 OpenAICodexAuthStore::OpenAICodexAuthStore(std::filesystem::path path)
     : ProviderAuthStore(std::move(path)) {}
 

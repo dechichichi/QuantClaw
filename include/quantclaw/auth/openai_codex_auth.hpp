@@ -37,6 +37,7 @@ std::string BuildOpenAICodexAuthorizeUrl(const std::string& state,
                                          const std::string& redirect_uri);
 std::optional<OpenAICodexCallbackBindTarget>
 ParseOpenAICodexCallbackBindTarget(std::string_view redirect_uri);
+std::string ParseOpenAICodexManualCode(std::string input);
 
 class OpenAICodexOAuthClient {
  public:
