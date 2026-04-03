@@ -256,9 +256,9 @@ std::string html_response(const std::string& title, const std::string& body) {
 
 bool open_browser(const std::string& url) {
 #ifdef _WIN32
-  return reinterpret_cast<intptr_t>(
-             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr,
-                           SW_SHOWNORMAL)) > 32;
+  return reinterpret_cast<intptr_t>(ShellExecuteA(nullptr, "open", url.c_str(),
+                                                  nullptr, nullptr,
+                                                  SW_SHOWNORMAL)) > 32;
 #elif defined(__APPLE__)
   std::string cmd = "open \"" + url + "\"";
   return std::system(cmd.c_str()) == 0;
@@ -363,7 +363,8 @@ void OpenAICodexAuthStore::Save(const OpenAICodexAuthRecord& record) const {
       {"expiresAt", record.expires_at},
   };
 
-  const auto temp_path = path_.parent_path() / (path_.filename().string() + ".tmp");
+  const auto temp_path =
+      path_.parent_path() / (path_.filename().string() + ".tmp");
 #ifndef _WIN32
   {
     std::ofstream create(temp_path, std::ios::trunc);
@@ -372,10 +373,10 @@ void OpenAICodexAuthStore::Save(const OpenAICodexAuthRecord& record) const {
                                temp_path.string());
     }
   }
-  std::filesystem::permissions(
-      temp_path,
-      std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-      std::filesystem::perm_options::replace);
+  std::filesystem::permissions(temp_path,
+                               std::filesystem::perms::owner_read |
+                                   std::filesystem::perms::owner_write,
+                               std::filesystem::perm_options::replace);
 #endif
   std::ofstream out(temp_path, std::ios::trunc);
   if (!out) {
@@ -387,7 +388,6 @@ void OpenAICodexAuthStore::Save(const OpenAICodexAuthRecord& record) const {
   std::error_code remove_ec;
   std::filesystem::remove(path_, remove_ec);
   std::filesystem::rename(temp_path, path_);
-
 }
 
 bool OpenAICodexAuthStore::Clear() const {
