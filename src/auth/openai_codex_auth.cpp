@@ -21,6 +21,10 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#ifdef _WIN32
+#include <shellapi.h>
+#endif
+
 #include "quantclaw/platform/process.hpp"
 #include "quantclaw/providers/curl_raii.hpp"
 #include "quantclaw/providers/provider_error.hpp"
@@ -62,6 +66,42 @@ std::string url_encode(std::string_view value) {
     }
   }
   return out.str();
+}
+
+int hex_value(char ch) {
+  if (ch >= '0' && ch <= '9') {
+    return ch - '0';
+  }
+  if (ch >= 'A' && ch <= 'F') {
+    return 10 + (ch - 'A');
+  }
+  if (ch >= 'a' && ch <= 'f') {
+    return 10 + (ch - 'a');
+  }
+  return -1;
+}
+
+std::string url_decode(std::string_view value) {
+  std::string out;
+  out.reserve(value.size());
+  for (size_t i = 0; i < value.size(); ++i) {
+    const char ch = value[i];
+    if (ch == '+') {
+      out.push_back(' ');
+      continue;
+    }
+    if (ch == '%' && i + 2 < value.size()) {
+      const int hi = hex_value(value[i + 1]);
+      const int lo = hex_value(value[i + 2]);
+      if (hi >= 0 && lo >= 0) {
+        out.push_back(static_cast<char>((hi << 4) | lo));
+        i += 2;
+        continue;
+      }
+    }
+    out.push_back(ch);
+  }
+  return out;
 }
 
 std::string base64url_encode(const unsigned char* data, size_t len) {
@@ -216,13 +256,16 @@ std::string html_response(const std::string& title, const std::string& body) {
 
 bool open_browser(const std::string& url) {
 #ifdef _WIN32
-  std::string cmd = "start \"\" \"" + url + "\"";
+  return reinterpret_cast<intptr_t>(
+             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr,
+                           SW_SHOWNORMAL)) > 32;
 #elif defined(__APPLE__)
   std::string cmd = "open \"" + url + "\"";
+  return std::system(cmd.c_str()) == 0;
 #else
   std::string cmd = "xdg-open \"" + url + "\"";
-#endif
   return std::system(cmd.c_str()) == 0;
+#endif
 }
 
 std::string extract_query_param(const std::string& query,
@@ -246,14 +289,18 @@ std::string extract_query_param(const std::string& query,
 
 std::string parse_manual_code(std::string input) {
   if (input.find("code=") == std::string::npos) {
-    return input;
+    return url_decode(input);
   }
   auto pos = input.find('?');
   std::string query = pos == std::string::npos ? input : input.substr(pos + 1);
-  return extract_query_param(query, "code");
+  return url_decode(extract_query_param(query, "code"));
 }
 
 }  // namespace
+
+std::string ParseOpenAICodexManualCode(std::string input) {
+  return parse_manual_code(std::move(input));
+}
 
 bool OpenAICodexAuthRecord::HasUsableAccessToken(std::int64_t now_epoch_seconds,
                                                  int leeway_seconds) const {
@@ -316,19 +363,31 @@ void OpenAICodexAuthStore::Save(const OpenAICodexAuthRecord& record) const {
       {"expiresAt", record.expires_at},
   };
 
-  std::ofstream out(path_);
+  const auto temp_path = path_.parent_path() / (path_.filename().string() + ".tmp");
+#ifndef _WIN32
+  {
+    std::ofstream create(temp_path, std::ios::trunc);
+    if (!create) {
+      throw std::runtime_error("Failed to write auth store: " +
+                               temp_path.string());
+    }
+  }
+  std::filesystem::permissions(
+      temp_path,
+      std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+      std::filesystem::perm_options::replace);
+#endif
+  std::ofstream out(temp_path, std::ios::trunc);
   if (!out) {
-    throw std::runtime_error("Failed to write auth store: " + path_.string());
+    throw std::runtime_error("Failed to write auth store: " +
+                             temp_path.string());
   }
   out << j.dump(2) << '\n';
   out.close();
+  std::error_code remove_ec;
+  std::filesystem::remove(path_, remove_ec);
+  std::filesystem::rename(temp_path, path_);
 
-#ifndef _WIN32
-  std::filesystem::permissions(path_,
-                               std::filesystem::perms::owner_read |
-                                   std::filesystem::perms::owner_write,
-                               std::filesystem::perm_options::replace);
-#endif
 }
 
 bool OpenAICodexAuthStore::Clear() const {
