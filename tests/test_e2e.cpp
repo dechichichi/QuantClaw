@@ -60,6 +60,8 @@ void register_rpc_handlers(
 class E2EMockLLMProvider : public quantclaw::LLMProvider {
  public:
   std::string response_text = "Hello from QuantClaw E2E mock.";
+  std::vector<std::vector<quantclaw::ChatCompletionResponse>> stream_sequences;
+  size_t stream_sequence_index = 0;
 
   quantclaw::ChatCompletionResponse
   ChatCompletion(const quantclaw::ChatCompletionRequest& /*request*/) override {
@@ -73,6 +75,14 @@ class E2EMockLLMProvider : public quantclaw::LLMProvider {
       const quantclaw::ChatCompletionRequest& /*request*/,
       std::function<void(const quantclaw::ChatCompletionResponse&)> callback)
       override {
+    if (stream_sequence_index < stream_sequences.size()) {
+      for (const auto& chunk : stream_sequences[stream_sequence_index]) {
+        callback(chunk);
+      }
+      ++stream_sequence_index;
+      return;
+    }
+
     // Emit a text delta then stream end
     quantclaw::ChatCompletionResponse delta;
     delta.content = response_text;
@@ -282,6 +292,56 @@ TEST_F(E2ETest, E2E_AgentRequest) {
   // Give events time to arrive
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
   EXPECT_TRUE(got_message_end);
+
+  client->Disconnect();
+}
+
+TEST_F(E2ETest, E2E_AgentRequestExecutesReadTool) {
+  quantclaw::ChatCompletionResponse tool_chunk;
+  tool_chunk.tool_calls.push_back(
+      {"call_read_1", "read", {{"path", (workspace_dir_ / "hello.txt").string()}}});
+
+  quantclaw::ChatCompletionResponse tool_end;
+  tool_end.is_stream_end = true;
+
+  quantclaw::ChatCompletionResponse final_end;
+  final_end.content = "Current directory file content: hello world";
+  final_end.is_stream_end = true;
+  final_end.finish_reason = "stop";
+
+  mock_llm_->stream_sequences = {{tool_chunk, tool_end}, {final_end}};
+  mock_llm_->stream_sequence_index = 0;
+
+  auto client = make_client();
+  ASSERT_TRUE(client->Connect(5000));
+
+  std::atomic<bool> got_tool_use{false};
+  std::atomic<bool> got_tool_result{false};
+  std::string tool_name;
+  std::string tool_content;
+
+  client->Subscribe("agent.tool_use",
+                    [&](const std::string&, const nlohmann::json& payload) {
+                      got_tool_use = true;
+                      tool_name = payload.value("name", "");
+                    });
+  client->Subscribe("agent.tool_result",
+                    [&](const std::string&, const nlohmann::json& payload) {
+                      got_tool_result = true;
+                      tool_content = payload.value("content", "");
+                    });
+
+  auto result = client->Call("agent.request", {{"message", "看一下当前目录有啥"}}, 10000);
+
+  ASSERT_TRUE(result.contains("response"));
+  EXPECT_NE(result["response"].get<std::string>().find("hello world"),
+            std::string::npos);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  EXPECT_TRUE(got_tool_use);
+  EXPECT_TRUE(got_tool_result);
+  EXPECT_EQ(tool_name, "read");
+  EXPECT_NE(tool_content.find("hello world"), std::string::npos);
 
   client->Disconnect();
 }
