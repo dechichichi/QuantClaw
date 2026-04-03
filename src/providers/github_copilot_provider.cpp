@@ -35,7 +35,8 @@ GitHubCopilotProvider::ResolveRuntimeCredential() const {
   const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                        std::chrono::system_clock::now().time_since_epoch())
                        .count();
-  if (!cached_runtime_.has_value() || !cached_runtime_->IsUsable(now)) {
+  if (!cached_runtime_.has_value() ||
+      (cached_runtime_->expires_at > 0 && !cached_runtime_->IsUsable(now))) {
     cached_runtime_ = resolver_->ResolveRuntimeCredential();
   }
   return *cached_runtime_;
