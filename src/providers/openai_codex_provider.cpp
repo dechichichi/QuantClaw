@@ -240,6 +240,10 @@ nlohmann::json build_codex_payload(const ChatCompletionRequest& request) {
     payload["tools"] = convert_tools_to_responses(request.tools);
   }
 
+  if (request.max_tokens > 0) {
+    payload["max_output_tokens"] = request.max_tokens;
+  }
+
   return payload;
 }
 
@@ -304,6 +308,10 @@ OpenAICodexProvider::ChatCompletion(const ChatCompletionRequest& request) {
         ClassifyHttpError(static_cast<int>(http_code), ctx.raw_body),
         static_cast<int>(http_code), ctx.raw_body, "openai-codex");
   }
+  if (!ctx.callback_error.empty()) {
+    throw ProviderError(ProviderErrorKind::kUnknown, 0, ctx.callback_error,
+                        "openai-codex");
+  }
 
   if (aggregated.finish_reason.empty()) {
     aggregated.finish_reason =
@@ -348,6 +356,10 @@ void OpenAICodexProvider::ChatCompletionStream(
     throw ProviderError(
         ClassifyHttpError(static_cast<int>(http_code), ctx.raw_body),
         static_cast<int>(http_code), ctx.raw_body, "openai-codex");
+  }
+  if (!ctx.callback_error.empty()) {
+    throw ProviderError(ProviderErrorKind::kUnknown, 0, ctx.callback_error,
+                        "openai-codex");
   }
 }
 
