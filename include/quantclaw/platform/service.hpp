@@ -5,20 +5,12 @@
 
 #include <memory>
 #include <string>
-#include <string_view>
 
 #include <spdlog/spdlog.h>
 
 #include "quantclaw/constants.hpp"
 
 namespace quantclaw::platform {
-
-#ifdef __APPLE__
-namespace detail {
-std::string shell_quote(std::string_view value);
-std::string xml_escape(std::string_view value);
-}  // namespace detail
-#endif
 
 // Cross-platform daemon/service management.
 // Linux: systemd user service.
