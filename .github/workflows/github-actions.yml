@@ -99,9 +99,6 @@ jobs:
       run: |
         bash scripts/build.sh --tests
 
-    - name: Build tests
-      run: cmake --build build --parallel --target quantclaw_tests
-
     - name: Run unit tests
       working-directory: build
       run: ctest --output-on-failure --parallel --timeout 120

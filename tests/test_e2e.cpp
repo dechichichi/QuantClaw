@@ -3,9 +3,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <thread>
 
 #include <spdlog/sinks/null_sink.h>
@@ -315,20 +317,30 @@ TEST_F(E2ETest, E2E_AgentRequestExecutesReadTool) {
   auto client = make_client();
   ASSERT_TRUE(client->Connect(5000));
 
-  std::atomic<bool> got_tool_use{false};
-  std::atomic<bool> got_tool_result{false};
+  std::mutex tool_events_mutex;
+  std::condition_variable tool_events_cv;
+  bool got_tool_use = false;
+  bool got_tool_result = false;
   std::string tool_name;
   std::string tool_content;
 
   client->Subscribe("agent.tool_use",
                     [&](const std::string&, const nlohmann::json& payload) {
-                      got_tool_use = true;
-                      tool_name = payload.value("name", "");
+                      {
+                        std::lock_guard<std::mutex> lock(tool_events_mutex);
+                        got_tool_use = true;
+                        tool_name = payload.value("name", "");
+                      }
+                      tool_events_cv.notify_all();
                     });
   client->Subscribe("agent.tool_result",
                     [&](const std::string&, const nlohmann::json& payload) {
-                      got_tool_result = true;
-                      tool_content = payload.value("content", "");
+                      {
+                        std::lock_guard<std::mutex> lock(tool_events_mutex);
+                        got_tool_result = true;
+                        tool_content = payload.value("content", "");
+                      }
+                      tool_events_cv.notify_all();
                     });
 
   auto result = client->Call("agent.request", {{"message", "看一下当前目录有啥"}}, 10000);
@@ -337,11 +349,27 @@ TEST_F(E2ETest, E2E_AgentRequestExecutesReadTool) {
   EXPECT_NE(result["response"].get<std::string>().find("hello world"),
             std::string::npos);
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-  EXPECT_TRUE(got_tool_use);
-  EXPECT_TRUE(got_tool_result);
-  EXPECT_EQ(tool_name, "read");
-  EXPECT_NE(tool_content.find("hello world"), std::string::npos);
+  bool observed_tool_use = false;
+  bool observed_tool_result = false;
+  std::string observed_tool_name;
+  std::string observed_tool_content;
+  {
+    std::unique_lock<std::mutex> lock(tool_events_mutex);
+    const bool got_all_events = tool_events_cv.wait_for(
+        lock, std::chrono::seconds(5),
+        [&] { return got_tool_use && got_tool_result; });
+    observed_tool_use = got_tool_use;
+    observed_tool_result = got_tool_result;
+    observed_tool_name = tool_name;
+    observed_tool_content = tool_content;
+    ASSERT_TRUE(got_all_events)
+        << "Timed out waiting for tool events: got_tool_use="
+        << observed_tool_use
+        << ", got_tool_result=" << observed_tool_result;
+  }
+
+  EXPECT_EQ(observed_tool_name, "read");
+  EXPECT_NE(observed_tool_content.find("hello world"), std::string::npos);
 
   client->Disconnect();
 }
