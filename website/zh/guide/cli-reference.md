@@ -130,6 +130,28 @@ quantclaw sessions delete SESSION_KEY
 quantclaw sessions reset SESSION_KEY
 ```
 
+### models auth
+
+管理 provider 级登录凭证，例如 OpenAI Codex OAuth 和 GitHub Copilot device auth。
+
+```bash
+quantclaw models auth <login|status|logout> --provider <openai-codex|github-copilot>
+quantclaw models auth login-github-copilot
+```
+
+**示例：**
+```bash
+quantclaw models auth login --provider openai-codex
+quantclaw models auth status --provider openai-codex
+quantclaw models auth logout --provider openai-codex
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+quantclaw models auth login-github-copilot
+```
+
+`openai-codex` 会打开浏览器 OAuth 流程，并把凭证保存到 `~/.quantclaw/auth/openai-codex.json`。`github-copilot` 使用 GitHub device flow，长期凭证保存到 `~/.quantclaw/auth/github-copilot.json`，短期 Copilot 运行时 token 缓存在 `~/.quantclaw/auth/github-copilot.token-cache.json`。`status` 会显示本地是否已有缓存凭证，以及当前 token 是否仍然有效或可刷新。`logout` 会删除本地缓存授权。
+
 ### config
 
 管理配置。

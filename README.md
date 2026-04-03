@@ -253,6 +253,59 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
 
 The model field uses `provider/model-name` prefix routing. If no prefix is given, it defaults to `openai`. See `config.example.json` for a full example with all options.
 
+### OpenAI Codex OAuth Login
+
+QuantClaw also supports browser-based OpenAI account login through a separate `openai-codex` provider, so you can use ChatGPT/Codex-backed models without setting `OPENAI_API_KEY`:
+
+```bash
+quantclaw models auth login --provider openai-codex
+quantclaw models auth status --provider openai-codex
+quantclaw models auth logout --provider openai-codex
+```
+
+OAuth credentials are stored in `~/.quantclaw/auth/openai-codex.json` and are refreshed automatically when possible. To use the OAuth-backed provider, point your model at `openai-codex/...`, for example:
+
+```json
+{
+  "llm": {
+    "model": "openai-codex/gpt-5"
+  },
+  "providers": {
+    "openai-codex": {
+      "baseUrl": "https://chatgpt.com/backend-api",
+      "timeout": 30
+    }
+  }
+}
+```
+
+If you prefer the standard OpenAI API key flow, keep using the `openai` provider with `apiKey` / `apiKeyEnv`.
+
+### GitHub Copilot Login
+
+QuantClaw also supports GitHub Copilot through a dedicated `github-copilot` provider with GitHub device login:
+
+```bash
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+
+# Convenience alias
+quantclaw models auth login-github-copilot
+```
+
+Long-lived GitHub credentials are stored in `~/.quantclaw/auth/github-copilot.json`, and short-lived Copilot API tokens are cached in `~/.quantclaw/auth/github-copilot.token-cache.json`. At runtime, QuantClaw prefers `COPILOT_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN`, and only falls back to the local auth store if none of those are set.
+
+To use the provider, point your model at `github-copilot/...`, for example:
+
+```json
+{
+  "llm": {
+    "model": "github-copilot/gpt-4o"
+  }
+}
+```
+
 ### Log Retention
 
 QuantClaw enforces automatic log cleanup on every gateway startup to prevent disk exhaustion.
@@ -793,7 +846,7 @@ QuantClaw aims for full compatibility with [OpenClaw](https://github.com/opencla
 | JSONL session format | **Partial** | `message`, `thinking_level_change`, `custom_message` entry types implemented; `parentId` branching and write lock pending |
 | Config format | **Partial** | JSON5 (comments, trailing commas) and `${VAR}` env substitution supported; `$include` directive pending |
 | CLI commands | **Partial** | Core commands present (`gateway`, `agent`, `sessions`, `config`, `models`, `channels`, `plugins`, `health`, `status`, `run`, `eval`); missing `account`, `device` |
-| Gateway RPC protocol | **Partial** | 57 methods implemented (~45% of OpenClaw surface); missing device pairing, node management, OAuth flows, extended cron/usage RPCs |
+| Gateway RPC protocol | **Partial** | 57 methods implemented (~45% of OpenClaw surface); missing device pairing, node management, extended cron/usage RPCs |
 | Provider system | **Partial** | OpenAI + Anthropic fully implemented; Ollama + Gemini registered but stub; missing Mistral, Bedrock, Azure, Grok, Perplexity, LM Studio, Together, etc. (~12% of OpenClaw provider breadth) |
 | Agent loop | **Partial** | Dynamic iterations (32–160), context guard, tool truncation, overflow compaction retry, budget pruning, subagent spawning all implemented; multi-stage compaction and `parentId` session branching pending |
 | Memory search | **Partial** | BM25 keyword search only; missing hybrid vector search (embeddings, SQLite, MMR) |
@@ -811,7 +864,7 @@ QuantClaw aims for full compatibility with [OpenClaw](https://github.com/opencla
 | Config format | JSON5 + `${VAR}` + `$include` | JSON5 + `${VAR}` (no `$include` yet) |
 | Default model | `anthropic/claude-sonnet-4-6` | `anthropic/claude-sonnet-4-6` |
 | Default maxTokens | `8192` | `4096` |
-| Auth profiles | Multi-profile, OAuth + key rotation | Single API key per provider |
+| Auth profiles | Multi-profile, OAuth + key rotation | OpenAI Codex OAuth auth store + single API key per other provider |
 | Memory search | Hybrid (vector 0.7 + BM25 0.3) | BM25 only |
 | Plugin execution | In-process (Node.js VM) | Out-of-process (TCP sidecar) |
 | Channel adapters | 38+ built-in (Discord, Slack, Teams, Telegram, Matrix, IRC, etc.) | External subprocess scripts (user-provided) |
@@ -834,7 +887,7 @@ Not yet implemented:
 - TUI interactive mode
 - `account`, `device` CLI commands
 - Config `$include` directive (modular config files)
-- Multiple auth profiles with OAuth credential flows
+- Multiple auth profiles and provider-wide OAuth expansion beyond `openai-codex`
 - Session `parentId` branching (tree-shaped sessions)
 - Hybrid memory search (vector embeddings + BM25, SQLite backend)
 - Multi-stage context compaction (chunk + merge strategy)

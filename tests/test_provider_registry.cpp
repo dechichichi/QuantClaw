@@ -142,6 +142,33 @@ TEST(ProviderRegistryTest, GetProviderCreatesInstance) {
   EXPECT_EQ(provider.get(), provider2.get());
 }
 
+TEST(ProviderRegistryTest, OpenAICodexBuiltinFactoryCreatesProvider) {
+  auto reg = std::make_unique<ProviderRegistry>(make_logger("providers"));
+  reg->RegisterBuiltinFactories();
+
+  ProviderEntry entry;
+  entry.id = "openai-codex";
+  entry.base_url = "https://chatgpt.com/backend-api";
+  reg->AddProvider(entry);
+
+  auto provider = reg->GetProvider("openai-codex");
+  ASSERT_NE(provider, nullptr);
+  EXPECT_EQ(provider->GetProviderName(), "openai-codex");
+}
+
+TEST(ProviderRegistryTest, GitHubCopilotBuiltinFactoryCreatesProvider) {
+  auto reg = std::make_unique<ProviderRegistry>(make_logger("providers"));
+  reg->RegisterBuiltinFactories();
+
+  ProviderEntry entry;
+  entry.id = "github-copilot";
+  reg->AddProvider(entry);
+
+  auto provider = reg->GetProvider("github-copilot");
+  ASSERT_NE(provider, nullptr);
+  EXPECT_EQ(provider->GetProviderName(), "github-copilot");
+}
+
 TEST(ProviderRegistryTest, GetProviderForModel) {
   auto reg = std::make_unique<ProviderRegistry>(make_logger("providers"));
   reg->RegisterBuiltinFactories();

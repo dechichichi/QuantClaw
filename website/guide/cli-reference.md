@@ -149,6 +149,28 @@ quantclaw sessions delete SESSION_KEY
 quantclaw sessions reset SESSION_KEY
 ```
 
+### models auth
+
+Manage provider-backed login credentials such as OpenAI Codex OAuth and GitHub Copilot device auth.
+
+```bash
+quantclaw models auth <login|status|logout> --provider <openai-codex|github-copilot>
+quantclaw models auth login-github-copilot
+```
+
+**Examples:**
+```bash
+quantclaw models auth login --provider openai-codex
+quantclaw models auth status --provider openai-codex
+quantclaw models auth logout --provider openai-codex
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+quantclaw models auth login-github-copilot
+```
+
+`openai-codex` uses a browser-based OAuth flow and stores credentials in `~/.quantclaw/auth/openai-codex.json`. `github-copilot` uses GitHub device login and stores credentials in `~/.quantclaw/auth/github-copilot.json`; short-lived Copilot runtime tokens are cached in `~/.quantclaw/auth/github-copilot.token-cache.json`. `status` shows whether cached credentials exist and whether they are still valid or refreshable. `logout` removes the local authorization cache.
+
 ### config
 
 Manage configuration.

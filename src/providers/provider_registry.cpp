@@ -6,10 +6,29 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "quantclaw/auth/github_copilot_auth.hpp"
+#include "quantclaw/auth/openai_codex_auth.hpp"
 #include "quantclaw/providers/anthropic_provider.hpp"
+#include "quantclaw/providers/github_copilot_provider.hpp"
+#include "quantclaw/providers/openai_codex_provider.hpp"
 #include "quantclaw/providers/openai_provider.hpp"
 
 namespace quantclaw {
+namespace {
+
+std::string resolve_github_token_from_env() {
+  constexpr const char* names[] = {"COPILOT_GITHUB_TOKEN", "GH_TOKEN",
+                                   "GITHUB_TOKEN"};
+  for (const char* name : names) {
+    const char* value = std::getenv(name);
+    if (value != nullptr && *value != '\0') {
+      return value;
+    }
+  }
+  return "";
+}
+
+}  // namespace
 
 // --- ModelRef ---
 
@@ -45,6 +64,28 @@ void ProviderRegistry::RegisterBuiltinFactories() {
         entry.base_url.empty() ? "https://api.openai.com/v1" : entry.base_url;
     return std::make_shared<OpenAIProvider>(entry.api_key, url, entry.timeout,
                                             logger);
+  });
+
+  RegisterFactory("openai-codex", [](const ProviderEntry& entry,
+                                     std::shared_ptr<spdlog::logger> logger) {
+    std::string url = entry.base_url.empty() ? "https://chatgpt.com/backend-api"
+                                             : entry.base_url;
+    auto auth_client = std::make_shared<auth::OpenAICodexOAuthClient>(logger);
+    auto token_source = std::make_shared<auth::OpenAICodexCredentialResolver>(
+        auth::OpenAICodexAuthStore(), auth_client, logger);
+    return std::make_shared<OpenAICodexProvider>(url, entry.timeout, logger,
+                                                 token_source);
+  });
+
+  RegisterFactory("github-copilot", [](const ProviderEntry& entry,
+                                       std::shared_ptr<spdlog::logger> logger) {
+    auto token_client =
+        std::make_shared<auth::GitHubCopilotTokenClient>(logger);
+    auto resolver = std::make_shared<auth::GitHubCopilotRuntimeResolver>(
+        auth::GitHubCopilotAuthStore(), auth::GitHubCopilotTokenCache(),
+        token_client, logger, resolve_github_token_from_env);
+    const int timeout = entry.timeout > 0 ? entry.timeout : 30;
+    return std::make_shared<GitHubCopilotProvider>(timeout, logger, resolver);
   });
 
   // Anthropic
