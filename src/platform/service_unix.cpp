@@ -33,6 +33,9 @@ constexpr const char* kServiceLabel = "quantclaw-gateway";
 #ifdef __APPLE__
 namespace {
 
+constexpr std::string_view kDefaultLaunchdPath =
+    "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin";
+
 std::string shell_quote(std::string_view value) {
   std::string quoted = "'";
   for (char ch : value) {
@@ -218,12 +221,7 @@ int ServiceManager::install(int port) {
       << "    <key>HOME</key>\n"
       << "    <string>" << xml_escape(home_directory()) << "</string>\n"
       << "    <key>PATH</key>\n"
-      << "    <string>"
-      << xml_escape(std::getenv("PATH")
-                        ? std::getenv("PATH")
-                        : "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/"
-                          "bin:/opt/homebrew/bin")
-      << "</string>\n"
+      << "    <string>" << xml_escape(kDefaultLaunchdPath) << "</string>\n"
       << "    <key>QUANTCLAW_LOG_LEVEL</key>\n"
       << "    <string>info</string>\n"
       << "  </dict>\n"
