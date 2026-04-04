@@ -40,7 +40,7 @@ jobs:
         run: |
           mapfile -d '' files < <(find . -type f -name '*.sh' -print0)
           if [ "${#files[@]}" -gt 0 ]; then
-            shellcheck "${files[@]}"
+            shellcheck -S error "${files[@]}"
           fi
 
   dependency-review:
