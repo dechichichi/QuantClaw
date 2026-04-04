@@ -178,7 +178,7 @@ cd build && sudo cmake --install .
 
 CI 配置位于 `.github/workflows/github-actions.yml`，在每次 PR 时自动运行：
 
-- C++ 代码格式检查（clang-format）
+- C++ 代码格式检查（CI 固定通过 `./scripts/format-code.sh --check` 使用 `clang-format-18`）
 - 完整 C++ 测试套件（1009 项测试）
 - Sidecar TypeScript 测试
 

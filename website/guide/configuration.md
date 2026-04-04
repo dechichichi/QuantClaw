@@ -111,6 +111,59 @@ Each key under `providers` defines a named provider:
 - `baseUrl`: API base URL (change to use compatible endpoints like DeepSeek, local Ollama, etc.)
 - `timeout`: Request timeout in seconds (default: `30`)
 
+### OpenAI Codex OAuth
+
+If you want a browser login flow instead of `OPENAI_API_KEY`, use the dedicated `openai-codex` provider:
+
+```bash
+quantclaw models auth login --provider openai-codex
+quantclaw models auth status --provider openai-codex
+quantclaw models auth logout --provider openai-codex
+```
+
+Credentials are stored in `~/.quantclaw/auth/openai-codex.json` and refreshed automatically when possible. `status` reports whether cached credentials exist and whether the access token is still valid or refreshable. `logout` clears only the local cached credentials, it does not switch your configured model away from `openai-codex/...`. Auth-store updates use atomic replacement, so a failed write does not wipe an existing cached login. The OAuth-backed provider is configured separately from the standard `openai` provider:
+
+```json
+{
+  "llm": {
+    "model": "openai-codex/gpt-5"
+  },
+  "providers": {
+    "openai-codex": {
+      "baseUrl": "https://chatgpt.com/backend-api",
+      "timeout": 30
+    }
+  }
+}
+```
+
+Use `openai` when you want direct API-key access, and `openai-codex` when you want ChatGPT/Codex OAuth.
+
+### GitHub Copilot
+
+If you want to use GitHub Copilot-backed models, authenticate the dedicated `github-copilot` provider through GitHub device login:
+
+```bash
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+
+# Convenience alias
+quantclaw models auth login-github-copilot
+```
+
+Credentials are stored in `~/.quantclaw/auth/github-copilot.json`, and short-lived Copilot runtime tokens are cached in `~/.quantclaw/auth/github-copilot.token-cache.json`. `status` reports whether cached credentials exist and whether the access token is still valid or refreshable. `logout` clears only the local cached credentials, it does not switch your configured model away from `github-copilot/...`. Auth-store updates use atomic replacement, so a failed write does not wipe an existing cached login. Runtime token resolution prefers `COPILOT_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN`, and only falls back to the local auth store if no environment token is set.
+
+```json
+{
+  "llm": {
+    "model": "github-copilot/gpt-4o"
+  }
+}
+```
+
+Use the `github-copilot/...` namespace when you want account-backed GitHub Copilot access.
+
 ## Gateway Configuration (`gateway`)
 
 ```json

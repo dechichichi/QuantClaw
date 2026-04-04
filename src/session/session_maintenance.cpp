@@ -294,7 +294,7 @@ void SessionMaintenance::enforce_disk_limit(MaintenanceResult& result) {
 void SessionMaintenance::archive_file(const std::filesystem::path& path) {
   auto now = std::chrono::system_clock::now();
   auto time_t = std::chrono::system_clock::to_time_t(now);
-  struct tm tm{};
+  struct tm tm {};
 #ifdef _WIN32
   localtime_s(&tm, &time_t);
 #else

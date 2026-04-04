@@ -253,6 +253,59 @@ QuantClaw 使用专属端口范围以避免与 OpenClaw 和其他服务冲突：
 
 `model` 字段使用 `provider/model-name` 前缀路由。不带前缀时默认走 `openai`。任何兼容 OpenAI Chat Completion 格式的 API 都可以通过修改 `baseUrl` 接入（通义千问、DeepSeek、本地 Ollama 等）。
 
+### OpenAI Codex OAuth 登录
+
+QuantClaw 还支持通过独立的 `openai-codex` provider 走浏览器 OAuth 登录 OpenAI 账号，这样可以在不设置 `OPENAI_API_KEY` 的情况下使用 ChatGPT / Codex：
+
+```bash
+quantclaw models auth login --provider openai-codex
+quantclaw models auth status --provider openai-codex
+quantclaw models auth logout --provider openai-codex
+```
+
+OAuth 凭证会保存在 `~/.quantclaw/auth/openai-codex.json`，并在可用时自动刷新。`status` 会显示本地是否已有缓存凭证，以及当前 access token 是否仍然有效或可刷新。`logout` 只会清除本地缓存凭证，不会把你当前配置的模型自动切回非 `openai-codex/...` 路径。Auth store 写盘采用原子替换，保存失败时不会把已有登录态一起删掉。要使用这条 OAuth 路径，把模型配置成 `openai-codex/...`，例如：
+
+```json
+{
+  "llm": {
+    "model": "openai-codex/gpt-5"
+  },
+  "providers": {
+    "openai-codex": {
+      "baseUrl": "https://chatgpt.com/backend-api",
+      "timeout": 30
+    }
+  }
+}
+```
+
+如果你想继续使用标准 OpenAI API key 路径，仍然使用 `openai` provider + `apiKey` / `apiKeyEnv` 即可。
+
+### GitHub Copilot 登录
+
+QuantClaw 也支持通过独立的 `github-copilot` provider 接入 GitHub Copilot，登录方式采用 GitHub device flow：
+
+```bash
+quantclaw models auth login --provider github-copilot
+quantclaw models auth status --provider github-copilot
+quantclaw models auth logout --provider github-copilot
+
+# 快捷别名
+quantclaw models auth login-github-copilot
+```
+
+长期 GitHub 凭证会保存在 `~/.quantclaw/auth/github-copilot.json`，短期 Copilot API token 会缓存在 `~/.quantclaw/auth/github-copilot.token-cache.json`。`status` 会显示本地是否已有缓存凭证，以及当前 access token 是否仍然有效或可刷新。`logout` 只会清除本地缓存凭证，不会把你当前配置的模型自动切回非 `github-copilot/...` 路径。Auth store 写盘采用原子替换，保存失败时不会把已有登录态一起删掉。运行时会优先读取 `COPILOT_GITHUB_TOKEN`，然后是 `GH_TOKEN`、`GITHUB_TOKEN`，如果都没有再回退到本地 auth store。
+
+要使用这条路径，把模型配置成 `github-copilot/...`，例如：
+
+```json
+{
+  "llm": {
+    "model": "github-copilot/gpt-4o"
+  }
+}
+```
+
 ### 日志保存策略
 
 QuantClaw 在每次网关启动时自动清理过期日志，防止磁盘被撑爆。
@@ -664,8 +717,8 @@ docker run -d \
 | `scripts/build.sh` | 智能构建脚本：彩色输出、`-c` 清理、`--debug`/`--tests`、`--asan`/`--tsan`/`--ubsan` 消毒器、自动检测 CPU 核数，并按平台安装依赖；在 macOS 上会自动接入 Homebrew。 |
 | `scripts/release.sh` | 构建发布 tarball 并生成 SHA256 校验文件。从 `scripts/DOCKER_VERSION` 读取版本或接受参数。输出到 `dist/`。 |
 | `scripts/install.sh` | 原生安装脚本：`--user` 安装到 `~/.quantclaw/bin`（macOS 默认），`--system` 安装到 `/usr/local/bin`（Linux 默认），随后自动执行 onboarding 并安装后台服务定义。 |
-| `scripts/format-code.sh` | 用 `clang-format` 格式化所有 C++ 源文件。加 `--check` 参数可做 dry-run（CI 使用）。 |
-| `scripts/format-code-docker.sh` | 同上，但在 Docker 内运行，无需本地安装 `clang-format`。 |
+| `scripts/format-code.sh` | 用 `clang-format-18` 格式化所有 C++ 源文件。加 `--check` 参数可运行和 CI 完全一致的 dry-run 检查。 |
+| `scripts/format-code-docker.sh` | 同上，但在 Docker 内固定使用 `clang-format-18`，避免本地和 CI 的格式化结果漂移。 |
 | `scripts/build_ui.sh` | 构建 Web 仪表板 UI 静态资源。 |
 
 
@@ -789,7 +842,7 @@ QuantClaw 目标是完全兼容 [OpenClaw](https://github.com/openclaw/openclaw)
 | JSONL 会话格式 | **部分** | `message`、`thinking_level_change`、`custom_message` entry type 均已实现；`parentId` 分支和 write lock 待实现 |
 | 配置格式 | **部分** | 已支持 JSON5（注释、尾逗号）和 `${VAR}` 环境变量替换；`$include` 指令待实现 |
 | CLI 命令 | **部分** | 核心命令已有（`gateway`、`agent`、`sessions`、`config`、`models`、`channels`、`plugins`、`health`、`status`、`run`、`eval`）；缺 `account`、`device` |
-| Gateway RPC 协议 | **部分** | 已实现 57 个 method（约 45% 覆盖）；缺 device pairing、node 管理、OAuth 流程、扩展 cron/usage RPC |
+| Gateway RPC 协议 | **部分** | 已实现 57 个 method（约 45% 覆盖）；缺 device pairing、node 管理、扩展 cron/usage RPC |
 | Provider 系统 | **部分** | OpenAI + Anthropic 完整实现；Ollama + Gemini 已注册但为 stub；缺 Mistral、Bedrock、Azure、Grok、Perplexity、LM Studio、Together 等（约覆盖 OpenClaw 12% 广度） |
 | Agent 循环 | **部分** | 动态迭代（32–160）、上下文守卫、工具截断、overflow compaction retry、budget pruning、子 agent 派生均已实现；多阶段压缩和 `parentId` 会话分支待实现 |
 | 记忆搜索 | **部分** | 仅 BM25 关键词搜索；缺 hybrid vector search（embedding、SQLite、MMR） |
@@ -807,7 +860,7 @@ QuantClaw 目标是完全兼容 [OpenClaw](https://github.com/openclaw/openclaw)
 | 配置格式 | JSON5 + `${VAR}` + `$include` | JSON5 + `${VAR}`（暂无 `$include`） |
 | 默认模型 | `anthropic/claude-sonnet-4-6` | `anthropic/claude-sonnet-4-6` |
 | 默认 maxTokens | `8192` | `4096` |
-| 认证 profile | 多 profile、OAuth + key 轮换 | 每 provider 单个 API Key |
+| 认证 profile | 多 profile、OAuth + key 轮换 | `openai-codex` 支持 OAuth auth store，其它 provider 仍为单 API Key |
 | 记忆搜索 | Hybrid（向量 0.7 + BM25 0.3） | 仅 BM25 |
 | 插件执行 | 进程内（Node.js VM） | 进程外（TCP sidecar） |
 | 频道适配器 | 38+ 内置（Discord、Slack、Teams、Telegram、Matrix、IRC 等） | 外部 subprocess 脚本（用户提供） |
@@ -830,7 +883,7 @@ QuantClaw 目标是完全兼容 [OpenClaw](https://github.com/openclaw/openclaw)
 - TUI 交互式终端界面
 - `account`、`device` CLI 命令
 - 配置 `$include` 指令（模块化配置文件）
-- 多 auth profile + OAuth 认证流程
+- 多 auth profile，以及 `openai-codex` 之外更广泛的 OAuth 扩展
 - 会话 `parentId` 分支（树状会话结构）
 - Hybrid 记忆搜索（向量 embedding + BM25、SQLite 后端）
 - 多阶段上下文压缩（chunk + merge 策略）
@@ -891,7 +944,7 @@ Apache License 2.0 — 详见 [LICENSE](LICENSE)。
 
 ### 代码规范
 
-QuantClaw 遵循 [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)，用 `clang-format` 强制执行。
+QuantClaw 遵循 [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)，仓库统一以 `clang-format-18` 为准，CI 直接运行 `./scripts/format-code.sh --check`。
 
 **VS Code** — 在 `.vscode/settings.json` 中添加：
 
@@ -908,6 +961,8 @@ QuantClaw 遵循 [Google C++ Style Guide](https://google.github.io/styleguide/cp
 cat > .git/hooks/pre-commit << 'EOF'
 #!/bin/bash
 ./scripts/format-code.sh
+# 或先跑一遍和 CI 完全一致的检查
+./scripts/format-code.sh --check
 git add -u
 EOF
 chmod +x .git/hooks/pre-commit
@@ -948,7 +1003,7 @@ TEST(MyModuleTest, BasicFunctionality) {
 ### Pull Request 检查清单
 
 - 所有测试通过（`ctest --output-on-failure`）
-- 代码已用 `clang-format` 格式化（CI 会检查）
+- 代码已通过 `./scripts/format-code.sh --check`（或等价的 Docker 脚本，CI 固定使用 `clang-format-18`）
 - 无新增编译器警告
 - 如果新增了用户可见的功能，请更新 README
 - 为新功能添加了单元测试

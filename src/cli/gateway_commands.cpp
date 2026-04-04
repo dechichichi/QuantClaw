@@ -55,10 +55,26 @@ void register_rpc_handlers(
     std::shared_ptr<quantclaw::ExecApprovalManager> exec_approval_mgr = nullptr,
     quantclaw::PluginSystem* plugin_system = nullptr,
     gateway::CommandQueue* command_queue = nullptr,
-    std::string log_file_path = {});
+    std::string log_file_path = {},
+    std::function<std::vector<std::string>()> running_adapters_fn = {});
 }
 
 namespace quantclaw::cli {
+namespace {
+
+std::string ResolveGitHubCopilotEnvToken() {
+  constexpr const char* names[] = {"COPILOT_GITHUB_TOKEN", "GH_TOKEN",
+                                   "GITHUB_TOKEN"};
+  for (const char* name : names) {
+    const char* value = std::getenv(name);
+    if (value != nullptr && *value != '\0') {
+      return value;
+    }
+  }
+  return "";
+}
+
+}  // namespace
 
 // Removes *.log and spdlog rotated files (*.log.N) older than |days| days.
 // Called at gateway startup to prevent unbounded disk usage.
@@ -171,6 +187,12 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
     entry.api_key = prov.api_key;
     entry.base_url = prov.base_url;
     entry.timeout = prov.timeout;
+    if (id == "github-copilot") {
+      const auto github_token = ResolveGitHubCopilotEnvToken();
+      if (!github_token.empty()) {
+        entry.extra["githubToken"] = github_token;
+      }
+    }
     provider_registry->AddProvider(entry);
   }
 
@@ -188,7 +210,6 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
 
   // Resolve the configured model to get initial provider
   auto model_ref = provider_registry->ResolveModel(config.agent.model);
-  config.agent.model = model_ref.model;  // strip prefix before passing to API
   auto llm_provider = provider_registry->GetProviderForModel(model_ref);
   if (!llm_provider) {
     logger_->error("Failed to resolve provider for model: {}",
@@ -402,6 +423,12 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
       logger_);
   command_queue->Start();
 
+  std::shared_ptr<quantclaw::ChannelAdapterManager> adapter_manager;
+  if (!config.channels.empty()) {
+    adapter_manager = std::make_shared<quantclaw::ChannelAdapterManager>(
+        port, auth_token, config.channels, logger_);
+  }
+
   // Initialize plugin system
   quantclaw::PluginSystem plugin_system(logger_);
   plugin_system.Initialize(config, workspace_dir);
@@ -411,7 +438,10 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
       server, session_manager, agent_loop, prompt_builder, tool_registry,
       config, logger_, reload_fn, provider_registry, skill_loader,
       cron_scheduler, exec_approval_mgr, &plugin_system, command_queue.get(),
-      (base_dir / "logs" / "gateway.log").string());
+      (base_dir / "logs" / "gateway.log").string(), [adapter_manager]() {
+        return adapter_manager ? adapter_manager->RunningAdapters()
+                               : std::vector<std::string>{};
+      });
 
   // Start server
   try {
@@ -496,10 +526,7 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
   }
 
   // Start channel adapters (Discord, Telegram, etc.)
-  std::unique_ptr<quantclaw::ChannelAdapterManager> adapter_manager;
-  if (!config.channels.empty()) {
-    adapter_manager = std::make_unique<quantclaw::ChannelAdapterManager>(
-        port, auth_token, config.channels, logger_);
+  if (adapter_manager) {
     adapter_manager->Start();
   }
 

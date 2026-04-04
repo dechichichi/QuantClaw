@@ -33,8 +33,8 @@ template <typename T>
 struct unwrap_result {
   // Return by value (not decltype(auto)) to prevent dangling references
   // when used in GCC statement expressions where the source is destroyed.
-  static auto get(T&& v)
-      -> std::remove_reference_t<decltype(*std::forward<T>(v))> {
+  static auto
+  get(T&& v) -> std::remove_reference_t<decltype(*std::forward<T>(v))> {
     return *std::forward<T>(v);
   }
 };

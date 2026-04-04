@@ -65,7 +65,7 @@ class MiniHTTPServer {
     setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR,
                reinterpret_cast<const char*>(&opt), sizeof(opt));
 
-    struct sockaddr_in addr{};
+    struct sockaddr_in addr {};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = 0;  // OS picks a free port

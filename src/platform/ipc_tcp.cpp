@@ -108,7 +108,7 @@ bool IpcServer::listen() {
   setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
              reinterpret_cast<const char*>(&opt), sizeof(opt));
 
-  struct sockaddr_in addr{};
+  struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = inet_addr("127.0.0.1");
   addr.sin_port = 0;  // OS picks a free port.
@@ -124,7 +124,7 @@ bool IpcServer::listen() {
   }
 
   // Retrieve the actual port assigned by the OS.
-  struct sockaddr_in bound{};
+  struct sockaddr_in bound {};
 #ifdef _WIN32
   int bound_len = sizeof(bound);
 #else
@@ -195,7 +195,7 @@ bool IpcClient::connect() {
   if (sock == INVALID_SOCK)
     return false;
 
-  struct sockaddr_in addr{};
+  struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = inet_addr(host_.c_str());
   addr.sin_port = htons(static_cast<uint16_t>(port_));

@@ -501,10 +501,10 @@ sudo apt-get install gcc-13 g++-13
 
 When contributing code:
 
-1. **Follow style guide**: See `.clang-format`
+1. **Follow style guide**: See `.clang-format` and use the repository formatter entrypoint
 2. **Write tests**: Add tests for new features
 3. **Run full build**: `cmake --build . && ./quantclaw_tests`
-4. **Format code**: `clang-format -i file.cpp`
+4. **Format code**: `./scripts/format-code.sh` (or `./scripts/format-code.sh --check` to mirror CI's `clang-format-18` check)
 5. **Check compliance**: `cmake --build . --target clang-tidy`
 
 ---

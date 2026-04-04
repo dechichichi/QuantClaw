@@ -226,6 +226,18 @@ OpenAIProvider::OpenAIProvider(const std::string& api_key,
   logger_->info("OpenAIProvider initialized with base_url: {}", base_url_);
 }
 
+std::string OpenAIProvider::ResolveApiKey() const {
+  return api_key_;
+}
+
+std::string OpenAIProvider::ResolveBaseUrl() const {
+  return base_url_;
+}
+
+std::string OpenAIProvider::ProviderId() const {
+  return "openai";
+}
+
 ChatCompletionResponse
 OpenAIProvider::ChatCompletion(const ChatCompletionRequest& request) {
   // Build JSON payload
@@ -303,7 +315,7 @@ OpenAIProvider::MakeApiRequest(const std::string& json_payload) const {
   CurlHandle curl;
   CurlSlist headers = CreateHeaders();
 
-  std::string url = base_url_ + "/chat/completions";
+  std::string url = ResolveBaseUrl() + "/chat/completions";
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
@@ -325,7 +337,7 @@ OpenAIProvider::MakeApiRequest(const std::string& json_payload) const {
     }
     throw ProviderError(
         kind, 0, "CURL request failed: " + std::string(curl_easy_strerror(res)),
-        "openai");
+        ProviderId());
   }
 
   // Check HTTP status code
@@ -345,7 +357,7 @@ OpenAIProvider::MakeApiRequest(const std::string& json_payload) const {
     ProviderError err(error_kind, static_cast<int>(http_code),
                       "OpenAI API error (HTTP " + std::to_string(http_code) +
                           "): " + read_buffer,
-                      "openai");
+                      ProviderId());
     err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
     throw err;
   }
@@ -357,7 +369,7 @@ CurlSlist OpenAIProvider::CreateHeaders() const {
   CurlSlist headers;
   headers.append("Content-Type: application/json");
 
-  std::string auth_header = "Authorization: Bearer " + api_key_;
+  std::string auth_header = "Authorization: Bearer " + ResolveApiKey();
   headers.append(auth_header.c_str());
 
   return headers;
@@ -577,7 +589,7 @@ void OpenAIProvider::ChatCompletionStream(
   CurlHandle curl;
   CurlSlist headers = CreateHeaders();
 
-  std::string url = base_url_ + "/chat/completions";
+  std::string url = ResolveBaseUrl() + "/chat/completions";
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
@@ -602,7 +614,7 @@ void OpenAIProvider::ChatCompletionStream(
     throw ProviderError(kind, 0,
                         "CURL streaming request failed: " +
                             std::string(curl_easy_strerror(res)),
-                        "openai");
+                        ProviderId());
   }
 
   // Check HTTP status code for streaming requests too
@@ -623,7 +635,7 @@ void OpenAIProvider::ChatCompletionStream(
                       "OpenAI streaming API error (HTTP " +
                           std::to_string(http_code) +
                           "): " + stream_ctx.raw_response_body,
-                      "openai");
+                      ProviderId());
     err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
     throw err;
   }
