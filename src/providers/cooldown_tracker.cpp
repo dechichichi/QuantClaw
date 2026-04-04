@@ -135,6 +135,9 @@ std::chrono::seconds CooldownTracker::ComputeCooldown(ProviderErrorKind kind,
       cap_s = 300;
       break;
 
+    case ProviderErrorKind::kContextOverflow:
+      return std::chrono::seconds(0);
+
     case ProviderErrorKind::kUnknown:
       base_s = 60;
       cap_s = 600;
