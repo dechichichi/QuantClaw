@@ -107,6 +107,10 @@ function normalizeFinalAssistantMessage(message: unknown): Record<string, unknow
   });
 }
 
+type ChatSendResult = {
+  response?: string;
+};
+
 export async function sendChatMessage(
   state: ChatState,
   message: string,
@@ -172,13 +176,27 @@ export async function sendChatMessage(
     : undefined;
 
   try {
-    await state.client.request("chat.send", {
+    const result = await state.client.request<ChatSendResult>("chat.send", {
       sessionKey: state.sessionKey,
       message: msg,
       deliver: false,
       idempotencyKey: runId,
       attachments: apiAttachments,
     });
+    const directResponse = typeof result?.response === "string" ? result.response : "";
+    if (directResponse && state.chatRunId === runId && state.chatStream === "") {
+      state.chatMessages = [
+        ...state.chatMessages,
+        {
+          role: "assistant",
+          content: [{ type: "text", text: directResponse }],
+          timestamp: Date.now(),
+        },
+      ];
+      state.chatRunId = null;
+      state.chatStream = null;
+      state.chatStreamStartedAt = null;
+    }
     return runId;
   } catch (err) {
     const error = String(err);

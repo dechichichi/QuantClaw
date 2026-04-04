@@ -1,8 +1,8 @@
 #!/bin/bash
 # QuantClaw Code Formatting Script
-# This script formats all C++ source files using clang-format
+# This script formats all C++ source files using clang-format-18
 
-set -e
+set -euo pipefail
 
 # Color output
 RED='\033[0;31m'
@@ -12,21 +12,6 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}QuantClaw Code Formatter${NC}"
 echo "================================"
-
-# Check if clang-format is installed
-if ! command -v clang-format &> /dev/null; then
-    echo -e "${RED}Error: clang-format not found${NC}"
-    echo ""
-    echo "Please install clang-format first:"
-    echo "  Ubuntu/Debian: sudo apt-get install clang-format"
-    echo "  macOS:         brew install clang-format"
-    echo "  Windows:       Download from LLVM releases"
-    exit 1
-fi
-
-CLANG_FORMAT_VERSION=$(clang-format --version | grep -oP '\d+\.\d+' | head -1)
-echo -e "Using clang-format version: ${GREEN}${CLANG_FORMAT_VERSION}${NC}"
-echo ""
 
 # Get project root directory
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,30 +26,91 @@ fi
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
+extract_major_version() {
+    sed -E 's/.*version ([0-9]+).*/\1/;t;d'
+}
+
+detect_clang_format() {
+    local candidate=""
+    local version_output=""
+    local major_version=""
+    local brew_prefix=""
+
+    if [ -n "${CLANG_FORMAT_BIN:-}" ]; then
+        if [ ! -x "${CLANG_FORMAT_BIN}" ]; then
+            echo -e "${RED}Error: CLANG_FORMAT_BIN is set but not executable: ${CLANG_FORMAT_BIN}${NC}"
+            exit 1
+        fi
+        echo "${CLANG_FORMAT_BIN}"
+        return 0
+    fi
+
+    if command -v clang-format-18 >/dev/null 2>&1; then
+        command -v clang-format-18
+        return 0
+    fi
+
+    if command -v clang-format >/dev/null 2>&1; then
+        candidate="$(command -v clang-format)"
+        version_output="$("${candidate}" --version 2>/dev/null || true)"
+        major_version="$(printf '%s\n' "${version_output}" | extract_major_version)"
+        if [ "${major_version}" = "18" ]; then
+            echo "${candidate}"
+            return 0
+        fi
+    fi
+
+    if command -v brew >/dev/null 2>&1; then
+        brew_prefix="$(brew --prefix llvm@18 2>/dev/null || true)"
+        if [ -n "${brew_prefix}" ] && [ -x "${brew_prefix}/bin/clang-format" ]; then
+            echo "${brew_prefix}/bin/clang-format"
+            return 0
+        fi
+    fi
+
+    echo -e "${RED}Error: clang-format-18 not found${NC}"
+    echo ""
+    echo "Install clang-format-18 (the version used by CI), or set CLANG_FORMAT_BIN."
+    echo "  Ubuntu/Debian: sudo apt-get install clang-format-18"
+    echo "  macOS:         brew install llvm@18"
+    echo "                 export CLANG_FORMAT_BIN=\"\$(brew --prefix llvm@18)/bin/clang-format\""
+    echo "  Windows:       Install LLVM 18 and set CLANG_FORMAT_BIN to clang-format.exe"
+    exit 1
+}
+
+CLANG_FORMAT_BIN="$(detect_clang_format)"
+CLANG_FORMAT_VERSION="$("${CLANG_FORMAT_BIN}" --version)"
+echo -e "Using clang-format binary: ${GREEN}${CLANG_FORMAT_BIN}${NC}"
+echo -e "Using clang-format version: ${GREEN}${CLANG_FORMAT_VERSION}${NC}"
+echo ""
+
 # Find all C++ source files
 echo "Finding C++ source files..."
-FILES=$(find src include tests -name "*.cpp" -o -name "*.hpp" 2>/dev/null || true)
+FILES=()
+while IFS= read -r -d '' FILE; do
+    FILES+=("$FILE")
+done < <(find src include tests \( -name "*.cpp" -o -name "*.hpp" \) -print0 2>/dev/null || true)
 
-if [ -z "$FILES" ]; then
+if [ "${#FILES[@]}" -eq 0 ]; then
     echo -e "${YELLOW}No C++ files found${NC}"
     exit 0
 fi
 
-FILE_COUNT=$(echo "$FILES" | wc -l)
+FILE_COUNT="${#FILES[@]}"
 echo -e "Found ${GREEN}${FILE_COUNT}${NC} files to format"
 echo ""
 
 # Check if --check flag is passed
-if [ "$1" = "--check" ]; then
+if [ "${1:-}" = "--check" ]; then
     echo "Running format check (dry-run)..."
     FAILED=0
 
-    for FILE in $FILES; do
-        if ! clang-format --dry-run --Werror "$FILE" 2>&1 > /dev/null; then
-            echo -e "${RED}✗${NC} $FILE"
+    for FILE in "${FILES[@]}"; do
+        if ! "${CLANG_FORMAT_BIN}" --dry-run --Werror "$FILE" > /dev/null 2>&1; then
+            echo -e "${RED}FAIL${NC} $FILE"
             FAILED=$((FAILED + 1))
         else
-            echo -e "${GREEN}✓${NC} $FILE"
+            echo -e "${GREEN}OK${NC}   $FILE"
         fi
     done
 
@@ -82,9 +128,9 @@ else
     echo "Formatting files..."
     FORMATTED=0
 
-    for FILE in $FILES; do
-        clang-format -i "$FILE"
-        echo -e "${GREEN}✓${NC} $FILE"
+    for FILE in "${FILES[@]}"; do
+        "${CLANG_FORMAT_BIN}" -i "$FILE"
+        echo -e "${GREEN}OK${NC}   $FILE"
         FORMATTED=$((FORMATTED + 1))
     done
 

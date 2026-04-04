@@ -7,13 +7,13 @@
 1. Fork 仓库并本地克隆
 2. 创建功能分支：`git checkout -b feat/my-feature` 或 `fix/issue-123`
 3. 编写代码，并为新功能添加测试
-4. 格式化代码：`./scripts/format-code.sh`（或 Docker：`./scripts/format-code-docker.sh`）
+4. 格式化代码：`./scripts/format-code.sh`（或 Docker：`./scripts/format-code-docker.sh`）；提交前建议再跑一次 `./scripts/format-code.sh --check`
 5. 运行测试：`cd build && ctest --output-on-failure`
 6. 提交并推送，然后向 `main` 分支发起 Pull Request
 
 ## 代码规范
 
-QuantClaw 遵循 [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)，用 `clang-format` 强制执行。
+QuantClaw 遵循 [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)，仓库统一以 `clang-format-18` 为准，CI 直接运行 `./scripts/format-code.sh --check`。
 
 ### VS Code 配置
 
@@ -90,7 +90,7 @@ docs: update CLI reference with correct gateway commands
 ## Pull Request 检查清单
 
 - [ ] 所有测试通过（`ctest --output-on-failure`）
-- [ ] 代码已用 `clang-format` 格式化（CI 会检查）
+- [ ] 代码已通过 `./scripts/format-code.sh --check`（或等价的 Docker 脚本，CI 固定使用 `clang-format-18`）
 - [ ] 无新增编译器警告
 - [ ] 如果新增了用户可见的功能，已更新 README
 - [ ] 为新功能添加了单元测试
@@ -136,6 +136,13 @@ QuantClaw/
 ```bash
 ./scripts/format-code.sh
 git add -u && git commit --amend
+```
+
+如果本机没有合适版本，可以改用：
+
+```bash
+./scripts/format-code-docker.sh --check
+./scripts/format-code-docker.sh
 ```
 
 ## 许可证

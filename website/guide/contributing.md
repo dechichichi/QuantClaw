@@ -90,12 +90,14 @@ git checkout -b feature/my-feature
 
 ### Follow Code Style
 
-**C++ Style Guide**: Google C++ Style Guide (enforced by clang-format)
+**C++ Style Guide**: Google C++ Style Guide. Use `./scripts/format-code.sh` locally; CI runs the same script with `clang-format-18`.
 
 ```bash
-# Format your code
-clang-format -i src/my_file.cpp
-clang-format -i include/quantclaw/my_file.hpp
+# Format all C++ code with the repository-pinned formatter
+./scripts/format-code.sh
+
+# Run the exact same dry-run check used by CI
+./scripts/format-code.sh --check
 
 # Check style
 clang-tidy src/my_file.cpp
@@ -183,7 +185,7 @@ git push origin feature/my-feature
 ## Pull Request Guidelines
 
 **Before submitting:**
-- [ ] Code follows style guide (clang-format)
+- [ ] Code follows style guide (`./scripts/format-code.sh --check`)
 - [ ] Tests added/updated
 - [ ] Documentation updated
 - [ ] No breaking changes (or documented)
@@ -258,10 +260,10 @@ tail -f /var/log/quantclaw.log
 
 ```bash
 # Format your code
-clang-format -i src/my_file.cpp
+./scripts/format-code.sh
 
-# Check formatting
-clang-format --dry-run src/my_file.cpp
+# Check formatting exactly like CI
+./scripts/format-code.sh --check
 ```
 
 ## Documentation

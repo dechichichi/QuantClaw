@@ -25,9 +25,9 @@ endif()
 option(BUILD_TESTS "Build tests" ON)
 
 # Sanitizer options (mutually exclusive: ASAN and TSAN cannot be combined)
-option(ENABLE_ASAN  "Build with AddressSanitizer + LeakSanitizer"   OFF)
-option(ENABLE_TSAN  "Build with ThreadSanitizer"                    OFF)
-option(ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer"         OFF)
+option(ENABLE_ASAN "Build with AddressSanitizer + LeakSanitizer" OFF)
+option(ENABLE_TSAN "Build with ThreadSanitizer" OFF)
+option(ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer" OFF)
 
 if(ENABLE_ASAN AND ENABLE_TSAN)
     message(FATAL_ERROR "ENABLE_ASAN and ENABLE_TSAN are mutually exclusive.")
@@ -66,8 +66,8 @@ include(FetchContent)
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
@@ -80,12 +80,11 @@ if(ixwebsocket_FOUND)
     # vcpkg provides ixwebsocket::ixwebsocket
     set(IXWEBSOCKET_TARGET ixwebsocket::ixwebsocket)
 else()
-    include(FetchContent)
     FetchContent_Declare(
         ixwebsocket
         GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
-        GIT_TAG        v11.4.6
-        GIT_SHALLOW    TRUE
+        GIT_TAG v11.4.6
+        GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(ixwebsocket)
     # FetchContent provides just ixwebsocket
@@ -111,8 +110,8 @@ if(NOT httplib_FOUND)
     FetchContent_Declare(
         httplib
         GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-        GIT_TAG        v0.18.3
-        GIT_SHALLOW    TRUE
+        GIT_TAG v0.18.3
+        GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(httplib)
 endif()
@@ -138,9 +137,14 @@ set(QUANTCLAW_CORE_SOURCES
     src/core/vector_index.cpp
     src/core/mmr_reranker.cpp
     src/core/temporal_decay.cpp
-    # Providers
+    # Providers / auth
+    src/auth/provider_auth.cpp
+    src/auth/openai_codex_auth.cpp
+    src/auth/github_copilot_auth.cpp
     src/providers/curl_raii.cpp
     src/providers/openai_provider.cpp
+    src/providers/openai_codex_provider.cpp
+    src/providers/github_copilot_provider.cpp
     src/providers/anthropic_provider.cpp
     src/providers/provider_registry.cpp
     src/providers/provider_error.cpp
@@ -149,6 +153,7 @@ set(QUANTCLAW_CORE_SOURCES
     # CLI
     src/cli/cli_manager.cpp
     src/cli/commands.cpp
+    src/cli/model_auth_commands.cpp
     src/cli/gateway_commands.cpp
     src/cli/agent_commands.cpp
     src/cli/session_commands.cpp
@@ -206,7 +211,7 @@ else()
 endif()
 
 # --- Build-time metadata ---
-# Git commit hash (short, 7 chars).  Falls back to "unknown" outside a repo.
+# Git commit hash (short, 7 chars). Falls back to "unknown" outside a repo.
 execute_process(
     COMMAND git rev-parse --short HEAD
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -287,8 +292,8 @@ if(BUILD_TESTS)
         FetchContent_Declare(
             googletest
             GIT_REPOSITORY https://github.com/google/googletest.git
-            GIT_TAG        v1.15.2
-            GIT_SHALLOW    TRUE
+            GIT_TAG v1.15.2
+            GIT_SHALLOW TRUE
         )
         FetchContent_MakeAvailable(googletest)
     endif()
@@ -310,6 +315,10 @@ if(BUILD_TESTS)
         tests/test_mcp_server.cpp
         tests/test_mcp_integration.cpp
         tests/test_openai_provider.cpp
+        tests/test_openai_codex_auth.cpp
+        tests/test_openai_codex_provider.cpp
+        tests/test_github_copilot_auth.cpp
+        tests/test_github_copilot_provider.cpp
         tests/test_anthropic_provider.cpp
         tests/test_security_sandbox.cpp
         tests/test_tool_registry.cpp
@@ -322,6 +331,7 @@ if(BUILD_TESTS)
         tests/test_mcp_client.cpp
         tests/test_daemon_manager.cpp
         tests/test_cli_commands.cpp
+        tests/test_model_auth_commands.cpp
         tests/test_rpc_handlers.cpp
         tests/test_e2e.cpp
         tests/test_plugin_system.cpp
@@ -375,6 +385,3 @@ if(BUILD_TESTS)
         gtest_discover_tests(quantclaw_tests)
     endif()
 endif()
-
-
-

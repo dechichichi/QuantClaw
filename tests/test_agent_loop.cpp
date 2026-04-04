@@ -1,6 +1,7 @@
 // Copyright 2025 QuantClaw Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -17,6 +18,7 @@
 #include "quantclaw/core/usage_accumulator.hpp"
 #include "quantclaw/gateway/protocol.hpp"
 #include "quantclaw/providers/llm_provider.hpp"
+#include "quantclaw/providers/provider_registry.hpp"
 #include "quantclaw/tools/tool_registry.hpp"
 
 #include "test_helpers.hpp"
@@ -224,6 +226,104 @@ TEST_F(AgentLoopTest, SetConfigUpdatesModel) {
   EXPECT_EQ(mock_provider_->last_request.max_tokens, 8192);
 }
 
+TEST_F(AgentLoopTest,
+       RegistryResolvesProviderPrefixedModelWithoutLosingModelName) {
+  auto openai_provider = std::make_shared<MockLLMProvider>();
+  openai_provider->response_text = "openai";
+
+  auto codex_provider = std::make_shared<MockLLMProvider>();
+  codex_provider->response_text = "codex";
+
+  auto registry = std::make_unique<quantclaw::ProviderRegistry>(logger_);
+  registry->RegisterFactory("openai", [openai_provider](
+                                          const quantclaw::ProviderEntry&,
+                                          std::shared_ptr<spdlog::logger>) {
+    return std::static_pointer_cast<quantclaw::LLMProvider>(openai_provider);
+  });
+  registry->RegisterFactory(
+      "openai-codex", [codex_provider](const quantclaw::ProviderEntry&,
+                                       std::shared_ptr<spdlog::logger>) {
+        return std::static_pointer_cast<quantclaw::LLMProvider>(codex_provider);
+      });
+
+  quantclaw::ProviderEntry openai_entry;
+  openai_entry.id = "openai";
+  registry->AddProvider(openai_entry);
+
+  quantclaw::ProviderEntry codex_entry;
+  codex_entry.id = "openai-codex";
+  registry->AddProvider(codex_entry);
+
+  quantclaw::AgentConfig agent_config;
+  agent_config.model = "openai-codex/gpt-5";
+  agent_config.temperature = 0.5;
+  agent_config.max_tokens = 2048;
+  agent_config.max_iterations = 15;
+
+  auto loop = std::make_unique<quantclaw::AgentLoop>(
+      memory_manager_, skill_loader_, tool_registry_, openai_provider,
+      agent_config, logger_);
+  loop->SetProviderRegistry(registry.get());
+
+  auto new_msgs = loop->ProcessMessage("test", {}, "sys");
+
+  ASSERT_FALSE(new_msgs.empty());
+  EXPECT_EQ(new_msgs.back().content[0].text, "codex");
+  EXPECT_EQ(codex_provider->last_request.model, "gpt-5");
+  EXPECT_TRUE(openai_provider->last_request.model.empty());
+}
+
+TEST_F(AgentLoopTest,
+       RegistryKeepsProviderPrefixedModelAcrossConsecutiveRequests) {
+  auto openai_provider = std::make_shared<MockLLMProvider>();
+  openai_provider->response_text = "openai";
+
+  auto codex_provider = std::make_shared<MockLLMProvider>();
+  codex_provider->response_text = "codex";
+
+  auto registry = std::make_unique<quantclaw::ProviderRegistry>(logger_);
+  registry->RegisterFactory("openai", [openai_provider](
+                                          const quantclaw::ProviderEntry&,
+                                          std::shared_ptr<spdlog::logger>) {
+    return std::static_pointer_cast<quantclaw::LLMProvider>(openai_provider);
+  });
+  registry->RegisterFactory(
+      "openai-codex", [codex_provider](const quantclaw::ProviderEntry&,
+                                       std::shared_ptr<spdlog::logger>) {
+        return std::static_pointer_cast<quantclaw::LLMProvider>(codex_provider);
+      });
+
+  quantclaw::ProviderEntry openai_entry;
+  openai_entry.id = "openai";
+  registry->AddProvider(openai_entry);
+
+  quantclaw::ProviderEntry codex_entry;
+  codex_entry.id = "openai-codex";
+  registry->AddProvider(codex_entry);
+
+  quantclaw::AgentConfig agent_config;
+  agent_config.model = "openai-codex/gpt-5";
+  agent_config.temperature = 0.5;
+  agent_config.max_tokens = 2048;
+  agent_config.max_iterations = 15;
+
+  auto loop = std::make_unique<quantclaw::AgentLoop>(
+      memory_manager_, skill_loader_, tool_registry_, openai_provider,
+      agent_config, logger_);
+  loop->SetProviderRegistry(registry.get());
+
+  auto first_msgs = loop->ProcessMessage("first", {}, "sys");
+  auto second_msgs = loop->ProcessMessage("second", {}, "sys");
+
+  ASSERT_FALSE(first_msgs.empty());
+  ASSERT_FALSE(second_msgs.empty());
+  EXPECT_EQ(first_msgs.back().content[0].text, "codex");
+  EXPECT_EQ(second_msgs.back().content[0].text, "codex");
+  EXPECT_EQ(codex_provider->last_request.model, "gpt-5");
+  EXPECT_TRUE(openai_provider->last_request.model.empty());
+  EXPECT_EQ(loop->GetConfig().model, "openai-codex/gpt-5");
+}
+
 TEST_F(AgentLoopTest, StreamingUsesConfigModel) {
   mock_provider_->response_text = "streamed";
   std::vector<quantclaw::AgentEvent> events;
@@ -234,6 +334,25 @@ TEST_F(AgentLoopTest, StreamingUsesConfigModel) {
 
   EXPECT_EQ(mock_provider_->last_request.model, "test-model");
   EXPECT_TRUE(mock_provider_->last_request.stream);
+}
+
+TEST_F(AgentLoopTest, StreamingRequestIncludesBuiltinToolSchemas) {
+  mock_provider_->response_text = "streamed";
+
+  agent_loop_->ProcessMessageStream("test", {}, "sys",
+                                    [](const quantclaw::AgentEvent&) {});
+
+  ASSERT_FALSE(mock_provider_->last_request.tools.empty());
+  EXPECT_TRUE(mock_provider_->last_request.tool_choice_auto);
+
+  const auto has_exec_tool = std::any_of(
+      mock_provider_->last_request.tools.begin(),
+      mock_provider_->last_request.tools.end(), [](const nlohmann::json& tool) {
+        return tool.value("type", "") == "function" &&
+               tool.contains("function") &&
+               tool["function"].value("name", "") == "exec";
+      });
+  EXPECT_TRUE(has_exec_tool);
 }
 
 TEST_F(AgentLoopTest, GetConfigReturnsCurrentConfig) {

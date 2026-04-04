@@ -8,16 +8,17 @@
 
 #include <spdlog/spdlog.h>
 
+#include "quantclaw/auth/openai_codex_auth.hpp"
 #include "quantclaw/providers/curl_raii.hpp"
-
-#include "llm_provider.hpp"
+#include "quantclaw/providers/llm_provider.hpp"
 
 namespace quantclaw {
 
-class OpenAIProvider : public LLMProvider {
+class OpenAICodexProvider : public LLMProvider {
  public:
-  OpenAIProvider(const std::string& api_key, const std::string& base_url,
-                 int timeout, std::shared_ptr<spdlog::logger> logger);
+  OpenAICodexProvider(const std::string& base_url, int timeout,
+                      std::shared_ptr<spdlog::logger> logger,
+                      std::shared_ptr<auth::BearerTokenSource> token_source);
 
   ChatCompletionResponse
   ChatCompletion(const ChatCompletionRequest& request) override;
@@ -27,18 +28,14 @@ class OpenAIProvider : public LLMProvider {
   std::string GetProviderName() const override;
   std::vector<std::string> GetSupportedModels() const override;
 
- protected:
-  virtual std::string ResolveApiKey() const;
-  virtual std::string ResolveBaseUrl() const;
-  virtual std::string ProviderId() const;
-  std::string MakeApiRequest(const std::string& json_payload) const;
-  virtual CurlSlist CreateHeaders() const;
-
  private:
-  std::string api_key_;
+  std::string ResolveEndpoint() const;
+  CurlSlist CreateHeaders(const std::string& bearer_token) const;
+
   std::string base_url_;
   int timeout_;
   std::shared_ptr<spdlog::logger> logger_;
+  std::shared_ptr<auth::BearerTokenSource> token_source_;
 };
 
 }  // namespace quantclaw

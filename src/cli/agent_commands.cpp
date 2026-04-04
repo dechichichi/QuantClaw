@@ -6,10 +6,28 @@
 #include <chrono>
 #include <iostream>
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "quantclaw/gateway/gateway_client.hpp"
 #include "quantclaw/gateway/protocol.hpp"
 
 namespace quantclaw::cli {
+
+namespace {
+
+bool should_stream_to_stdout() {
+#ifdef _WIN32
+  return _isatty(_fileno(stdout)) != 0;
+#else
+  return isatty(STDOUT_FILENO) == 1;
+#endif
+}
+
+}  // namespace
 
 AgentCommands::AgentCommands(std::shared_ptr<spdlog::logger> logger)
     : logger_(logger) {}
@@ -73,18 +91,28 @@ int AgentCommands::RequestCommand(const std::vector<std::string>& args) {
       return 1;
     }
 
-    // Subscribe to streaming events (print text deltas in real-time)
-    if (!json_output) {
-      client->Subscribe("agent.text_delta", [](const std::string&,
-                                               const nlohmann::json& payload) {
-        if (payload.contains("text")) {
-          std::cout << payload["text"].get<std::string>() << std::flush;
-        }
-      });
-      client->Subscribe("agent.message_end",
-                        [](const std::string&, const nlohmann::json&) {
-                          std::cout << std::endl;
+    bool stream_to_stdout = force_stream_to_stdout_.value_or(
+        !json_output && should_stream_to_stdout());
+    bool saw_stream_output = false;
+
+    // Only stream directly to stdout in interactive terminals.
+    if (stream_to_stdout) {
+      client->Subscribe("agent.text_delta",
+                        [&saw_stream_output](const std::string&,
+                                             const nlohmann::json& payload) {
+                          if (payload.contains("text")) {
+                            saw_stream_output = true;
+                            std::cout << payload["text"].get<std::string>()
+                                      << std::flush;
+                          }
                         });
+      client->Subscribe(
+          "agent.message_end",
+          [&saw_stream_output](const std::string&, const nlohmann::json&) {
+            if (saw_stream_output) {
+              std::cout << std::endl;
+            }
+          });
     }
 
     nlohmann::json params = {{"sessionKey", session_key}, {"message", message}};
@@ -96,6 +124,11 @@ int AgentCommands::RequestCommand(const std::vector<std::string>& args) {
 
     if (json_output) {
       std::cout << result.dump(2) << std::endl;
+    } else if (!stream_to_stdout || !saw_stream_output) {
+      auto response_it = result.find("response");
+      if (response_it != result.end() && response_it->is_string()) {
+        std::cout << response_it->get<std::string>() << std::endl;
+      }
     }
 
     client->Disconnect();
