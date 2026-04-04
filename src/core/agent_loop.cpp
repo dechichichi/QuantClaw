@@ -33,6 +33,16 @@ static bool has_non_whitespace(const std::string& value) {
                      [](unsigned char ch) { return !std::isspace(ch); });
 }
 
+static void append_thinking_block(Message& msg, const std::string& text) {
+  if (!has_non_whitespace(text)) {
+    return;
+  }
+  ContentBlock block;
+  block.type = "thinking";
+  block.text = text;
+  msg.content.push_back(std::move(block));
+}
+
 static std::vector<ToolCall>
 filter_valid_tool_calls(const std::vector<ToolCall>& tool_calls,
                         const std::shared_ptr<spdlog::logger>& logger,
@@ -278,6 +288,7 @@ std::vector<Message> AgentLoop::ProcessMessage(
         // Assistant message: text + tool_use blocks
         Message assistant_msg;
         assistant_msg.role = "assistant";
+        append_thinking_block(assistant_msg, response.reasoning_content);
         if (!response.content.empty())
           assistant_msg.content.push_back(
               ContentBlock::MakeText(response.content));
@@ -314,6 +325,7 @@ std::vector<Message> AgentLoop::ProcessMessage(
         logger_->info("LLM provided final response");
         Message final_msg;
         final_msg.role = "assistant";
+        append_thinking_block(final_msg, response.reasoning_content);
         final_msg.content.push_back(ContentBlock::MakeText(response.content));
         new_messages.push_back(final_msg);
         return new_messages;
@@ -450,6 +462,7 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
   while (iterations < max_iterations_ && !stop_requested_) {
     try {
       std::string full_response;
+      std::string full_reasoning;
       TokenUsage stream_usage;
       bool handled_tool_calls = false;
       bool saw_invalid_tool_call = false;
@@ -470,6 +483,10 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
                   has_non_whitespace(chunk.content)) {
                 full_response = chunk.content;
               }
+              if (!has_non_whitespace(full_reasoning) &&
+                  has_non_whitespace(chunk.reasoning_content)) {
+                full_reasoning = chunk.reasoning_content;
+              }
               return;
             }
 
@@ -478,6 +495,10 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
               if (callback) {
                 callback({events::kTextDelta, {{"text", chunk.content}}});
               }
+            }
+
+            if (!chunk.reasoning_content.empty()) {
+              full_reasoning += chunk.reasoning_content;
             }
 
             if (!chunk.tool_calls.empty()) {
@@ -498,37 +519,40 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
                              {"name", tc.name},
                              {"input", tc.arguments}}});
                 }
+              }
 
-                // Construct assistant message with text + tool_use blocks
-                Message assistant_msg;
-                assistant_msg.role = "assistant";
-                if (!full_response.empty())
-                  assistant_msg.content.push_back(
-                      ContentBlock::MakeText(full_response));
+              // Persist one assistant turn per model round so tool-call history
+              // stays aligned with OpenAI-compatible reasoning requirements.
+              Message assistant_msg;
+              assistant_msg.role = "assistant";
+              append_thinking_block(assistant_msg, full_reasoning);
+              if (!full_response.empty()) {
+                assistant_msg.content.push_back(
+                    ContentBlock::MakeText(full_response));
+              }
+              for (const auto& tc : valid_tool_calls) {
                 assistant_msg.content.push_back(
                     ContentBlock::MakeToolUse(tc.id, tc.name, tc.arguments));
-                request.messages.push_back(assistant_msg);
-                new_messages.push_back(assistant_msg);
-                full_response.clear();
+              }
+              request.messages.push_back(assistant_msg);
+              new_messages.push_back(assistant_msg);
+              full_response.clear();
+              full_reasoning.clear();
 
-                // Execute tool
+              Message results_msg;
+              results_msg.role = "user";
+              for (const auto& tc : valid_tool_calls) {
                 try {
                   auto result =
                       tool_registry_->ExecuteTool(tc.name, tc.arguments);
-                  // --- Tool result truncation ---
                   result = truncate_tool_result(result, kToolResultMaxChars,
                                                 kToolResultKeepLines);
                   if (callback) {
                     callback({events::kToolResult,
                               {{"tool_use_id", tc.id}, {"content", result}}});
                   }
-
-                  Message results_msg;
-                  results_msg.role = "user";
                   results_msg.content.push_back(
                       ContentBlock::MakeToolResult(tc.id, result));
-                  request.messages.push_back(results_msg);
-                  new_messages.push_back(results_msg);
                 } catch (const std::exception& e) {
                   std::string error_content = "Error: " + std::string(e.what());
                   if (callback) {
@@ -537,15 +561,12 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
                                {"content", error_content},
                                {"is_error", true}}});
                   }
-
-                  Message results_msg;
-                  results_msg.role = "user";
                   results_msg.content.push_back(
                       ContentBlock::MakeToolResult(tc.id, error_content));
-                  request.messages.push_back(results_msg);
-                  new_messages.push_back(results_msg);
                 }
               }
+              request.messages.push_back(results_msg);
+              new_messages.push_back(results_msg);
               return;
             }
           });
@@ -578,6 +599,7 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
         }
         Message final_msg;
         final_msg.role = "assistant";
+        append_thinking_block(final_msg, full_reasoning);
         final_msg.content.push_back(ContentBlock::MakeText(full_response));
         new_messages.push_back(final_msg);
         return new_messages;

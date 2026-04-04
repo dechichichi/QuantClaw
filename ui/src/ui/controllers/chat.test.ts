@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { handleChatEvent, type ChatEventPayload, type ChatState } from "./chat.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  handleChatEvent,
+  sendChatMessage,
+  type ChatEventPayload,
+  type ChatState,
+} from "./chat.ts";
 
 function createState(overrides: Partial<ChatState> = {}): ChatState {
   return {
@@ -255,5 +260,54 @@ describe("handleChatEvent", () => {
     expect(state.chatStream).toBe(null);
     expect(state.chatStreamStartedAt).toBe(null);
     expect(state.chatMessages).toEqual([existingMessage]);
+  });
+});
+
+describe("sendChatMessage", () => {
+  it("finalizes slash command responses without waiting for stream events", async () => {
+    const request = vi.fn().mockResolvedValue({
+      response: "Session reset. Starting fresh conversation.",
+    });
+    const state = createState({
+      client: { request } as never,
+      connected: true,
+    });
+
+    const runId = await sendChatMessage(state, "/reset");
+
+    expect(runId).not.toBe(null);
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({ message: "/reset" }),
+    );
+    expect(state.chatRunId).toBe(null);
+    expect(state.chatStream).toBe(null);
+    expect(state.chatStreamStartedAt).toBe(null);
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[1]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "Session reset. Starting fresh conversation." }],
+    });
+  });
+
+  it("does not append duplicate assistant text after streamed completion", async () => {
+    const state = createState({
+      connected: true,
+    });
+    const request = vi.fn().mockImplementation(async () => {
+      state.chatRunId = null;
+      state.chatStream = null;
+      state.chatStreamStartedAt = null;
+      return { response: "Already delivered by stream" };
+    });
+    state.client = { request } as never;
+
+    await sendChatMessage(state, "hello");
+
+    expect(state.chatMessages).toHaveLength(1);
+    expect(state.chatMessages[0]).toMatchObject({
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+    });
   });
 });
