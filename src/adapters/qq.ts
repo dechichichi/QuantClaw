@@ -21,8 +21,35 @@
  *   npx tsx qq.ts
  */
 
-import { Bot, ReceiverMode } from "qq-official-bot";
+import { Bot, ReceiverMode, type Intent } from "qq-official-bot";
 import { ChannelAdapter, runAdapter } from "./base.js";
+
+const DEFAULT_INTENTS: Intent[] = [
+  "GROUP_AT_MESSAGE_CREATE",
+  "C2C_MESSAGE_CREATE",
+  "GUILD_MESSAGES",
+  "DIRECT_MESSAGE",
+];
+
+const VALID_INTENTS = new Set<string>([
+  "GUILDS",
+  "GUILD_MEMBERS",
+  "GUILD_MESSAGES",
+  "GUILD_MESSAGE_REACTIONS",
+  "DIRECT_MESSAGE",
+  "AUDIO_OR_LIVE_CHANNEL_MEMBERS",
+  "GROUP_MESSAGE_CREATE",
+  "C2C_MESSAGE_CREATE",
+  "GROUP_AT_MESSAGE_CREATE",
+  "INTERACTION",
+  "MESSAGE_AUDIT",
+  "FORUMS_EVENTS",
+  "OPEN_FORUMS_EVENTS",
+  "AUDIO_ACTIONS",
+  "PUBLIC_GUILD_MESSAGES",
+]);
+
+const CHUNK_INTERVAL_MS = 300;
 
 interface QQConfig {
   appId: string;
@@ -30,7 +57,7 @@ interface QQConfig {
   sandbox?: boolean;
   dmPolicy?: string;
   groupPolicy?: string;
-  requireMention?: boolean;
+  intents?: string[];
   [key: string]: unknown;
 }
 
@@ -55,12 +82,22 @@ class QQAdapter extends ChannelAdapter {
       );
     }
 
-    const intents: string[] = [
-      "GROUP_AT_MESSAGE_CREATE",
-      "C2C_MESSAGE_CREATE",
-      "GUILD_MESSAGES",
-      "DIRECT_MESSAGE",
-    ];
+    let intents: Intent[];
+    if (this.cfg.intents?.length) {
+      const invalid = this.cfg.intents.filter((i) => !VALID_INTENTS.has(i));
+      if (invalid.length) {
+        console.warn(`[qq] Unknown intents ignored: ${invalid.join(", ")}`);
+      }
+      intents = this.cfg.intents.filter((i) =>
+        VALID_INTENTS.has(i)
+      ) as Intent[];
+      if (!intents.length) {
+        console.warn("[qq] No valid intents after filtering, using defaults");
+        intents = DEFAULT_INTENTS;
+      }
+    } else {
+      intents = DEFAULT_INTENTS;
+    }
 
     this.bot = new Bot({
       appid: appId,
@@ -71,12 +108,13 @@ class QQAdapter extends ChannelAdapter {
       maxRetry: 10,
       intents,
       mode: ReceiverMode.WEBSOCKET,
-    } as ConstructorParameters<typeof Bot>[0]);
+    });
 
     console.log(
       `[qq] Config: sandbox=${this.cfg.sandbox ?? false}, ` +
         `groupPolicy=${this.cfg.groupPolicy ?? "mention"}, ` +
-        `dmPolicy=${this.cfg.dmPolicy ?? "open"}`
+        `dmPolicy=${this.cfg.dmPolicy ?? "open"}, ` +
+        `intents=[${intents.join(",")}]`
     );
   }
 
@@ -101,6 +139,8 @@ class QQAdapter extends ChannelAdapter {
     }
   }
 
+  private _msgCounter = 0;
+
   private async onMessage(event: any): Promise<void> {
     const messageType: string = event.message_type ?? "";
     const content: string = (event.raw_message ?? event.content ?? "").trim();
@@ -119,15 +159,25 @@ class QQAdapter extends ChannelAdapter {
 
       const groupPolicy = this.cfg.groupPolicy ?? "mention";
       if (groupPolicy === "closed") {
-        console.log("[qq] Group message ignored (groupPolicy=closed)");
         return;
+      }
+      if (groupPolicy === "mention") {
+        const botId = (this.bot as any).self_id;
+        const mentionPattern = botId
+          ? new RegExp(`<@!?${botId}>`)
+          : null;
+        const isMentioned =
+          event.mentions?.some((m: any) => m.id === botId) ||
+          (mentionPattern && mentionPattern.test(event.content ?? ""));
+        if (!isMentioned) {
+          return;
+        }
       }
     } else if (messageType === "private") {
       channelId = `dm-${senderId}`;
 
       const dmPolicy = this.cfg.dmPolicy ?? "open";
       if (dmPolicy === "closed") {
-        console.log("[qq] DM ignored (dmPolicy=closed)");
         return;
       }
     } else if (messageType === "guild") {
@@ -136,20 +186,26 @@ class QQAdapter extends ChannelAdapter {
       channelId = event.channel_id ?? event.group_id ?? "unknown";
     }
 
-    const msgId: string = event.message_id ?? event.id ?? "";
+    const msgId: string =
+      event.message_id ?? event.id ?? `_fallback_${Date.now()}_${++this._msgCounter}`;
 
     console.log(
       `[qq] ${messageType} from ${senderId} in ${channelId}: "${content.slice(0, 80)}"`
     );
 
-    // Store the event so sendToPlatform can call event.reply
-    this._lastEvent = event;
-
-    await this.handlePlatformMessage(senderId, channelId, content, msgId);
+    this._replyMap.set(msgId, event);
+    try {
+      await this.handlePlatformMessage(senderId, channelId, content, msgId);
+    } finally {
+      this._replyMap.delete(msgId);
+    }
   }
 
-  private _lastEvent: any = null;
   private _replyMap = new Map<string, any>();
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
 
   protected async sendToPlatform(
     channelId: string,
@@ -158,22 +214,31 @@ class QQAdapter extends ChannelAdapter {
   ): Promise<void> {
     const chunks = text.match(/[\s\S]{1,2000}/g) ?? [text];
 
-    // Prefer event.reply() when available (handles group/private/guild routing)
-    const event = this._lastEvent;
-    if (event?.reply) {
-      for (const chunk of chunks) {
+    const event = replyTo ? this._replyMap.get(replyTo) : undefined;
+
+    if (!event) {
+      console.error(
+        `[qq] No event context for replyTo=${replyTo ?? "(none)"}, channel=${channelId}; message dropped`
+      );
+      return;
+    }
+
+    if (event.reply) {
+      for (let i = 0; i < chunks.length; i++) {
+        if (i > 0) await this.sleep(CHUNK_INTERVAL_MS);
         try {
-          await event.reply(chunk);
+          await event.reply(chunks[i]);
         } catch (err) {
           console.error("[qq] Failed to reply via event.reply():", err);
-          await this.sendViaService(channelId, chunk, event);
+          await this.sendViaService(channelId, chunks[i], event);
         }
       }
       return;
     }
 
-    for (const chunk of chunks) {
-      await this.sendViaService(channelId, chunk, event);
+    for (let i = 0; i < chunks.length; i++) {
+      if (i > 0) await this.sleep(CHUNK_INTERVAL_MS);
+      await this.sendViaService(channelId, chunks[i], event);
     }
   }
 
@@ -182,28 +247,25 @@ class QQAdapter extends ChannelAdapter {
     text: string,
     event: any
   ): Promise<void> {
-    try {
-      const messageType = event?.message_type ?? "";
-      if (messageType === "group" && event?.group_id) {
-        await this.bot.sendGroupMessage(event.group_id, text, event);
-      } else if (messageType === "guild" && event?.channel_id) {
-        await this.bot.sendGuildMessage(event.channel_id, text, event);
-      } else if (
-        messageType === "private" &&
-        (event?.user_id || event?.guild_id)
-      ) {
-        if (event.sub_type === "direct" && event.guild_id) {
-          await this.bot.sendDirectMessage(event.guild_id, text, event);
-        } else {
-          await this.bot.sendPrivateMessage(event.user_id, text, event);
-        }
+    const messageType = event?.message_type ?? "";
+
+    if (messageType === "group" && event?.group_id) {
+      await this.bot.sendGroupMessage(event.group_id, text, event);
+    } else if (messageType === "guild" && event?.channel_id) {
+      await this.bot.sendGuildMessage(event.channel_id, text, event);
+    } else if (
+      messageType === "private" &&
+      (event?.user_id || event?.guild_id)
+    ) {
+      if (event.sub_type === "direct" && event.guild_id) {
+        await this.bot.sendDirectMessage(event.guild_id, text, event);
       } else {
-        console.warn(
-          `[qq] Cannot determine send target for channel=${channelId}`
-        );
+        await this.bot.sendPrivateMessage(event.user_id, text, event);
       }
-    } catch (err) {
-      console.error("[qq] sendViaService failed:", err);
+    } else {
+      throw new Error(
+        `Cannot determine send target: messageType=${messageType}, channel=${channelId}`
+      );
     }
   }
 }
