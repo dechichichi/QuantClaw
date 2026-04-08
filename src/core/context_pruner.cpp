@@ -215,10 +215,15 @@ std::string ContextPruner::soft_prune(const std::string& content,
 bool ContextPruner::is_stale_tool_error(const std::string& content) {
   if (content.size() > 300) return false;
 
+  // Only neutralize environmental/configuration permission errors that may
+  // have been resolved by a config change. Do NOT rewrite explicit user
+  // rejections ("Command execution denied", "Approval timed out") —
+  // those reflect the user's active decision and rewriting them would
+  // cause the LLM to retry the same command in a loop.
   static const std::vector<std::string> markers = {
-      "Permission denied",       "Command execution denied",
-      "is not allowed",          "tool is not permitted",
-      "Approval timed out",      "execution denied",
+      "Permission denied",
+      "is not allowed",
+      "tool is not permitted",
   };
   for (const auto& marker : markers) {
     if (content.find(marker) != std::string::npos) return true;
