@@ -213,7 +213,8 @@ std::string ContextPruner::soft_prune(const std::string& content,
 }
 
 bool ContextPruner::is_stale_tool_error(const std::string& content) {
-  if (content.size() > 300) return false;
+  if (content.size() > 300)
+    return false;
 
   // Only neutralize environmental/configuration permission errors that may
   // have been resolved by a config change. Do NOT rewrite explicit user
@@ -226,7 +227,8 @@ bool ContextPruner::is_stale_tool_error(const std::string& content) {
       "tool is not permitted",
   };
   for (const auto& marker : markers) {
-    if (content.find(marker) != std::string::npos) return true;
+    if (content.find(marker) != std::string::npos)
+      return true;
   }
   return false;
 }

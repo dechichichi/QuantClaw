@@ -290,8 +290,8 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
 
       // Reconfigure exec approval
       if (exec_approval_mgr && !config.exec_approval_config.is_null()) {
-        auto approval_cfg =
-            quantclaw::ExecApprovalConfig::FromJson(config.exec_approval_config);
+        auto approval_cfg = quantclaw::ExecApprovalConfig::FromJson(
+            config.exec_approval_config);
         exec_approval_mgr->Configure(approval_cfg);
       }
 

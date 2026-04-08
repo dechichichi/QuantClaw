@@ -358,9 +358,8 @@ OpenAIProvider::MakeApiRequest(const std::string& json_payload) const {
                      SummarizeErrorBodyForLog(read_buffer));
     }
     if (http_code == 400) {
-      logger_->error(
-          "HTTP 400 Bad Request — payload size: {} bytes",
-          json_payload.size());
+      logger_->error("HTTP 400 Bad Request — payload size: {} bytes",
+                     json_payload.size());
     }
     ProviderError err(error_kind, static_cast<int>(http_code),
                       "OpenAI API error (HTTP " + std::to_string(http_code) +
