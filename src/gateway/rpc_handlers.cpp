@@ -217,8 +217,9 @@ void register_rpc_handlers(
     // Build system prompt
     std::string system_prompt = prompt_builder->BuildFull();
 
-    // Load history
-    auto history = session_manager->GetHistory(session_key, 50);
+    // Load history (enough for compaction to trigger)
+    int history_limit = agent_loop->GetConfig().HistoryLoadLimit();
+    auto history = session_manager->GetHistory(session_key, history_limit);
 
     // Convert SessionMessages to LLM Messages (lossless copy)
     std::vector<quantclaw::Message> llm_history;
@@ -253,7 +254,7 @@ void register_rpc_handlers(
     };
 
     auto new_messages = agent_loop->ProcessMessageStream(
-        message, llm_history, system_prompt, wrapped_callback);
+        message, llm_history, system_prompt, wrapped_callback, session_key);
 
     // Persist all new messages (assistant + tool_result) to session transcript
     for (const auto& msg : new_messages) {
@@ -938,10 +939,32 @@ void register_rpc_handlers(
         }
 
         auto compacted = compaction.Truncate(history_json, opts);
+        int original_count = static_cast<int>(history.size());
+        int new_count = static_cast<int>(compacted.size());
+
+        // Persist compaction results: keep only the recent messages
+        int keep = opts.keep_recent;
+        if (keep > 0 && static_cast<int>(history.size()) > keep) {
+          std::vector<quantclaw::SessionMessage> kept(
+              history.end() - keep, history.end());
+          quantclaw::SessionManager::CompactionMetadata meta;
+          meta.original_count = original_count;
+          meta.kept_count = keep;
+          meta.strategy = "truncate";
+          auto archive =
+              session_manager->CompactSession(session_key, kept, meta);
+          if (!archive.empty()) {
+            int max_keep =
+                agent_loop->GetConfig().max_archived_transcripts;
+            session_manager->CleanupArchives(session_key, max_keep);
+            logger->info("sessions.compact: persisted, archive: {}",
+                         archive);
+          }
+        }
 
         return {{"compacted", true},
-                {"originalCount", static_cast<int>(history.size())},
-                {"newCount", static_cast<int>(compacted.size())}};
+                {"originalCount", original_count},
+                {"newCount", new_count}};
       });
 
   // --- skills.status ---
@@ -1280,8 +1303,8 @@ void register_rpc_handlers(
               }
 
               auto system_prompt = prompt_builder->BuildFull(job.session_key);
-              auto new_msgs = agent_loop->ProcessMessage(job.message, history,
-                                                         system_prompt);
+              auto new_msgs = agent_loop->ProcessMessage(
+                  job.message, history, system_prompt, job.session_key);
 
               // Store messages
               for (const auto& msg : new_msgs) {

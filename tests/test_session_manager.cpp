@@ -564,3 +564,171 @@ TEST_F(SessionManagerTest, RootSessionHasNoParentInfo) {
   EXPECT_EQ(sessions[0].spawn_depth, 0);
   EXPECT_TRUE(sessions[0].subagent_role.empty());
 }
+
+// --- CompactSession persistence ---
+
+TEST_F(SessionManagerTest, CompactSessionArchivesAndRewrites) {
+  auto handle =
+      session_mgr_->GetOrCreate("agent:main:compact-test", "Compact");
+
+  for (int i = 0; i < 10; ++i) {
+    session_mgr_->AppendMessage("agent:main:compact-test", "user",
+                                "msg " + std::to_string(i));
+    session_mgr_->AppendMessage("agent:main:compact-test", "assistant",
+                                "reply " + std::to_string(i));
+  }
+
+  auto before = session_mgr_->GetHistory("agent:main:compact-test");
+  ASSERT_EQ(static_cast<int>(before.size()), 20);
+
+  // Keep last 6 messages
+  std::vector<quantclaw::SessionMessage> kept(before.end() - 6, before.end());
+
+  quantclaw::SessionManager::CompactionMetadata meta;
+  meta.original_count = 20;
+  meta.kept_count = 6;
+  meta.strategy = "truncate";
+
+  auto archive =
+      session_mgr_->CompactSession("agent:main:compact-test", kept, meta);
+  EXPECT_FALSE(archive.empty());
+
+  // Verify: new transcript should have compaction marker + 6 messages
+  auto after = session_mgr_->GetHistory("agent:main:compact-test");
+  EXPECT_EQ(static_cast<int>(after.size()), 6);
+
+  // Verify the kept messages are correct
+  EXPECT_EQ(after[0].role, kept[0].role);
+  EXPECT_EQ(after[5].role, kept[5].role);
+
+  // Verify archive file exists
+  auto archive_path = test_dir_ / archive;
+  EXPECT_TRUE(std::filesystem::exists(archive_path));
+}
+
+TEST_F(SessionManagerTest, CompactSessionPreservesCompactionMarker) {
+  auto handle =
+      session_mgr_->GetOrCreate("agent:main:marker-test", "Marker");
+
+  for (int i = 0; i < 5; ++i) {
+    session_mgr_->AppendMessage("agent:main:marker-test", "user",
+                                "msg " + std::to_string(i));
+  }
+
+  auto history = session_mgr_->GetHistory("agent:main:marker-test");
+  std::vector<quantclaw::SessionMessage> kept(history.end() - 2,
+                                               history.end());
+
+  quantclaw::SessionManager::CompactionMetadata meta;
+  meta.original_count = 5;
+  meta.kept_count = 2;
+  meta.strategy = "truncate";
+
+  session_mgr_->CompactSession("agent:main:marker-test", kept, meta);
+
+  // Read raw JSONL to verify compaction marker
+  auto sessions = session_mgr_->ListSessions();
+  auto it = std::find_if(sessions.begin(), sessions.end(),
+                          [](const quantclaw::SessionInfo& s) {
+                            return s.session_key == "agent:main:marker-test";
+                          });
+  ASSERT_NE(it, sessions.end());
+
+  auto path = test_dir_ / (it->session_id + ".jsonl");
+  std::ifstream file(path);
+  std::string first_line;
+  std::getline(file, first_line);
+  auto j = nlohmann::json::parse(first_line);
+  EXPECT_EQ(j["type"], "compaction");
+  EXPECT_EQ(j["original_count"], 5);
+  EXPECT_EQ(j["kept_count"], 2);
+  EXPECT_EQ(j["strategy"], "truncate");
+}
+
+TEST_F(SessionManagerTest, GetHistoryAfterCompactReturnsOnlyKept) {
+  auto handle =
+      session_mgr_->GetOrCreate("agent:main:reload-test", "Reload");
+
+  for (int i = 0; i < 8; ++i) {
+    session_mgr_->AppendMessage("agent:main:reload-test", "user",
+                                "msg " + std::to_string(i));
+  }
+
+  auto history = session_mgr_->GetHistory("agent:main:reload-test");
+  std::vector<quantclaw::SessionMessage> kept(history.end() - 3,
+                                               history.end());
+
+  quantclaw::SessionManager::CompactionMetadata meta;
+  meta.original_count = 8;
+  meta.kept_count = 3;
+  meta.strategy = "truncate";
+
+  session_mgr_->CompactSession("agent:main:reload-test", kept, meta);
+
+  // Reload session manager from disk
+  session_mgr_.reset();
+  session_mgr_ =
+      std::make_unique<quantclaw::SessionManager>(test_dir_, logger_);
+
+  auto reloaded = session_mgr_->GetHistory("agent:main:reload-test");
+  EXPECT_EQ(static_cast<int>(reloaded.size()), 3);
+}
+
+TEST_F(SessionManagerTest, CleanupArchivesRemovesOldest) {
+  auto handle =
+      session_mgr_->GetOrCreate("agent:main:cleanup-test", "Cleanup");
+
+  for (int round = 0; round < 5; ++round) {
+    for (int i = 0; i < 4; ++i) {
+      session_mgr_->AppendMessage("agent:main:cleanup-test", "user",
+                                  "r" + std::to_string(round) + "m" +
+                                      std::to_string(i));
+    }
+    auto history = session_mgr_->GetHistory("agent:main:cleanup-test");
+    std::vector<quantclaw::SessionMessage> kept(history.end() - 2,
+                                                 history.end());
+    quantclaw::SessionManager::CompactionMetadata meta;
+    meta.original_count = static_cast<int>(history.size());
+    meta.kept_count = 2;
+    meta.strategy = "truncate";
+    session_mgr_->CompactSession("agent:main:cleanup-test", kept, meta);
+  }
+
+  // Should have 5 archives now; cleanup to keep 2
+  int removed =
+      session_mgr_->CleanupArchives("agent:main:cleanup-test", 2);
+  EXPECT_EQ(removed, 3);
+
+  // Verify only 2 archives remain
+  auto sessions = session_mgr_->ListSessions();
+  auto it = std::find_if(sessions.begin(), sessions.end(),
+                          [](const quantclaw::SessionInfo& s) {
+                            return s.session_key == "agent:main:cleanup-test";
+                          });
+  ASSERT_NE(it, sessions.end());
+
+  std::string prefix = it->session_id + ".jsonl.compacted.";
+  int archive_count = 0;
+  for (const auto& entry :
+       std::filesystem::directory_iterator(test_dir_)) {
+    if (entry.is_regular_file() &&
+        entry.path().filename().string().find(prefix) == 0) {
+      archive_count++;
+    }
+  }
+  EXPECT_EQ(archive_count, 2);
+}
+
+TEST_F(SessionManagerTest, CompactSessionNonExistentReturnsEmpty) {
+  auto result = session_mgr_->CompactSession(
+      "agent:main:nonexistent", {},
+      quantclaw::SessionManager::CompactionMetadata{});
+  EXPECT_TRUE(result.empty());
+}
+
+TEST_F(SessionManagerTest, CleanupArchivesNoArchivesReturnsZero) {
+  session_mgr_->GetOrCreate("agent:main:no-archives", "NoArch");
+  int removed =
+      session_mgr_->CleanupArchives("agent:main:no-archives", 5);
+  EXPECT_EQ(removed, 0);
+}

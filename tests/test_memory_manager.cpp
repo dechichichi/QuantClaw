@@ -9,6 +9,7 @@
 #include <spdlog/spdlog.h>
 
 #include "quantclaw/core/memory_manager.hpp"
+#include "quantclaw/core/memory_extractor.hpp"
 #include "quantclaw/core/memory_search.hpp"
 
 #include "test_helpers.hpp"
@@ -294,4 +295,83 @@ TEST_F(MemorySearchExtendedTest, MultiFileSearch) {
   }
   EXPECT_TRUE(found_alpha);
   EXPECT_TRUE(found_beta);
+}
+
+// ================================================================
+// MemoryExtractor Tests
+// ================================================================
+
+class MemoryExtractorTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    test_dir_ = quantclaw::test::MakeTestDir("quantclaw_extractor_test");
+    auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();
+    logger_ = std::make_shared<spdlog::logger>("test", null_sink);
+    memory_manager_ =
+        std::make_unique<quantclaw::MemoryManager>(test_dir_, logger_);
+  }
+
+  void TearDown() override {
+    memory_manager_.reset();
+    if (std::filesystem::exists(test_dir_)) {
+      std::filesystem::remove_all(test_dir_);
+    }
+  }
+
+  std::filesystem::path test_dir_;
+  std::shared_ptr<spdlog::logger> logger_;
+  std::unique_ptr<quantclaw::MemoryManager> memory_manager_;
+};
+
+TEST_F(MemoryExtractorTest, ExtractsToolResults) {
+  std::vector<quantclaw::Message> messages;
+
+  quantclaw::Message tool_msg;
+  tool_msg.role = "user";
+  tool_msg.content.push_back(
+      quantclaw::ContentBlock::MakeToolResult("t1", "File created OK"));
+  messages.push_back(tool_msg);
+
+  quantclaw::Message err_msg;
+  err_msg.role = "user";
+  err_msg.content.push_back(
+      quantclaw::ContentBlock::MakeToolResult("t2", "Error: file not found"));
+  messages.push_back(err_msg);
+
+  quantclaw::MemoryExtractor extractor(logger_);
+  int count = extractor.Extract(messages, *memory_manager_);
+  EXPECT_EQ(count, 2);
+
+  auto memory_dir = test_dir_ / "memory";
+  EXPECT_TRUE(std::filesystem::exists(memory_dir));
+}
+
+TEST_F(MemoryExtractorTest, ExtractsUserCorrections) {
+  std::vector<quantclaw::Message> messages;
+  messages.push_back(
+      quantclaw::Message{"user", "no, actually I want JSON format"});
+
+  quantclaw::MemoryExtractor extractor(logger_);
+  int count = extractor.Extract(messages, *memory_manager_);
+  EXPECT_EQ(count, 1);
+}
+
+TEST_F(MemoryExtractorTest, ExtractsRememberDirectives) {
+  std::vector<quantclaw::Message> messages;
+  messages.push_back(
+      quantclaw::Message{"user", "please remember this: API key is XYZ-123"});
+
+  quantclaw::MemoryExtractor extractor(logger_);
+  int count = extractor.Extract(messages, *memory_manager_);
+  EXPECT_EQ(count, 1);
+}
+
+TEST_F(MemoryExtractorTest, NoFactsFromEmptyMessages) {
+  std::vector<quantclaw::Message> messages;
+  messages.push_back(quantclaw::Message{"user", "ok"});
+  messages.push_back(quantclaw::Message{"assistant", "sure"});
+
+  quantclaw::MemoryExtractor extractor(logger_);
+  int count = extractor.Extract(messages, *memory_manager_);
+  EXPECT_EQ(count, 0);
 }

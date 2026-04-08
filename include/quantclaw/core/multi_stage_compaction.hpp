@@ -45,6 +45,11 @@ class MultiStageCompaction {
   static std::vector<std::vector<Message>>
   ChunkByMaxTokens(const std::vector<Message>& messages, int max_tokens);
 
+  // Like ChunkByMaxTokens but never splits an assistant tool_use turn from its
+  // following tool_result user message(s).
+  static std::vector<std::vector<Message>>
+  ChunkByMaxTokensAtomic(const std::vector<Message>& messages, int max_tokens);
+
   // Estimate token count for a set of messages.
   static int EstimateTokens(const std::vector<Message>& messages);
 

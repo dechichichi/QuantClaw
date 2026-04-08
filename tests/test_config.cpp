@@ -20,6 +20,7 @@
 
 #include "quantclaw/common/defer.hpp"
 #include "quantclaw/config.hpp"
+#include "quantclaw/constants.hpp"
 #include "quantclaw/core/agent_loop.hpp"
 #include "quantclaw/core/memory_manager.hpp"
 #include "quantclaw/core/skill_loader.hpp"
@@ -1006,4 +1007,85 @@ TEST_F(ConfigTest, EnvVarNoSubstitutionWithoutDollarBrace) {
 
   auto config = quantclaw::QuantClawConfig::FromJson(json_config);
   EXPECT_EQ(config.providers.at("openai").api_key, "literal-string-no-vars");
+}
+
+TEST_F(ConfigTest, EmbeddedDeploymentProfileAppliesAgentDefaults) {
+  nlohmann::json json_config = {
+      {"system", {{"deploymentProfile", "embedded"}}},
+      {"llm", {{"model", "openai/test-model"}}}};
+
+  auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+
+  EXPECT_EQ(config.system.deployment_profile, "embedded");
+  EXPECT_EQ(config.agent.context_window, quantclaw::kEmbeddedProfileContextWindow);
+  EXPECT_EQ(config.agent.compact_max_messages,
+            quantclaw::kEmbeddedProfileCompactMaxMessages);
+  EXPECT_EQ(config.agent.compact_keep_recent,
+            quantclaw::kEmbeddedProfileCompactKeepRecent);
+  EXPECT_EQ(config.agent.compact_max_tokens,
+            quantclaw::kEmbeddedProfileCompactMaxTokens);
+  EXPECT_EQ(config.agent.compaction.strategy,
+            quantclaw::CompactionRuntimeConfig::Strategy::kTruncate);
+  EXPECT_EQ(config.agent.compaction.max_summary_calls_per_turn,
+            quantclaw::kEmbeddedProfileMaxSummaryCallsPerTurn);
+  EXPECT_EQ(config.agent.compaction.min_messages_for_multistage,
+            quantclaw::kEmbeddedProfileMinMessagesForMultistage);
+  EXPECT_EQ(config.agent.compaction.max_chunk_tokens,
+            quantclaw::kEmbeddedProfileMaxChunkTokens);
+}
+
+TEST_F(ConfigTest, EmbeddedDeploymentProfileRespectsExplicitKeys) {
+  nlohmann::json json_config = {
+      {"system", {{"deploymentProfile", "embedded"}}},
+      {"agent",
+       {{"model", "m"},
+        {"contextWindow", 32000},
+        {"compactMaxMessages", 80},
+        {"compaction", {{"strategy", "multistage"}}}}}};
+
+  auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+
+  EXPECT_EQ(config.agent.context_window, 32000);
+  EXPECT_EQ(config.agent.compact_max_messages, 80);
+  EXPECT_EQ(config.agent.compaction.strategy,
+            quantclaw::CompactionRuntimeConfig::Strategy::kMultistage);
+}
+
+TEST_F(ConfigTest, NonEmbeddedDoesNotApplyEmbeddedDefaults) {
+  nlohmann::json json_config = {{"llm", {{"model", "openai/x"}}}};
+  auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+  EXPECT_TRUE(config.system.deployment_profile.empty());
+  EXPECT_EQ(config.agent.context_window, quantclaw::kDefaultContextWindow);
+}
+
+TEST_F(ConfigTest, CompactPersistParsedFromJson) {
+  nlohmann::json json_config = {
+      {"agent",
+       {{"model", "m"},
+        {"compactPersist", false},
+        {"maxArchivedTranscripts", 7},
+        {"preCompactMemoryExtract", true}}}};
+
+  auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+  EXPECT_FALSE(config.agent.compact_persist);
+  EXPECT_EQ(config.agent.max_archived_transcripts, 7);
+  EXPECT_TRUE(config.agent.pre_compact_memory_extract);
+}
+
+TEST_F(ConfigTest, CompactPersistDefaults) {
+  nlohmann::json json_config = {{"llm", {{"model", "openai/x"}}}};
+  auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+  EXPECT_TRUE(config.agent.compact_persist);
+  EXPECT_EQ(config.agent.max_archived_transcripts, 5);
+  EXPECT_FALSE(config.agent.pre_compact_memory_extract);
+}
+
+TEST_F(ConfigTest, EmbeddedProfileAppliesArchiveDefaults) {
+  nlohmann::json json_config = {
+      {"system", {{"deploymentProfile", "embedded"}}},
+      {"llm", {{"model", "openai/x"}}}};
+
+  auto config = quantclaw::QuantClawConfig::FromJson(json_config);
+  EXPECT_EQ(config.agent.max_archived_transcripts,
+            quantclaw::kEmbeddedProfileMaxArchivedTranscripts);
 }

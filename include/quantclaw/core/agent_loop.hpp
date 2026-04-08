@@ -15,6 +15,7 @@
 #include "quantclaw/common/noncopyable.hpp"
 #include "quantclaw/config.hpp"
 #include "quantclaw/core/context_engine.hpp"
+#include "quantclaw/core/default_context_engine.hpp"
 #include "quantclaw/core/usage_accumulator.hpp"
 #include "quantclaw/providers/llm_provider.hpp"
 
@@ -107,6 +108,10 @@ class AgentLoop : public Noncopyable {
     session_key_ = key;
   }
 
+  // Set a callback for persisting compaction results to disk.
+  void SetCompactPersistCallback(
+      DefaultContextEngine::CompactPersistCallback cb);
+
   // Set usage accumulator for token tracking
   void SetUsageAccumulator(std::shared_ptr<UsageAccumulator> acc) {
     usage_accumulator_ = acc;
@@ -124,6 +129,12 @@ class AgentLoop : public Noncopyable {
   // Resolve current provider (from registry or fallback to injected provider)
   std::shared_ptr<LLMProvider> resolve_provider();
 
+  std::shared_ptr<ContextEngine> GetContextEngineForTurn();
+
+  void RefreshDefaultContextEngineSummary();
+
+  std::string SummarizeForCompaction(const std::vector<Message>& messages);
+
   std::vector<std::string>
   handle_tool_calls(const std::vector<nlohmann::json>& tool_calls);
 
@@ -136,6 +147,8 @@ class AgentLoop : public Noncopyable {
   FailoverResolver* failover_resolver_ = nullptr;        // Non-owning, optional
   std::shared_ptr<UsageAccumulator> usage_accumulator_;  // Shared ownership
   std::shared_ptr<ContextEngine> context_engine_;        // Pluggable engine
+  std::shared_ptr<DefaultContextEngine> default_context_engine_;
+  int compaction_summary_calls_this_turn_ = 0;
   std::string session_key_;  // For failover session pinning
   std::shared_ptr<spdlog::logger> logger_;
   AgentConfig agent_config_;

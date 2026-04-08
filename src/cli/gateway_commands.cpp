@@ -15,6 +15,7 @@
 #include "quantclaw/constants.hpp"
 #include "quantclaw/core/agent_loop.hpp"
 #include "quantclaw/core/cron_scheduler.hpp"
+#include "quantclaw/core/memory_extractor.hpp"
 #include "quantclaw/core/memory_manager.hpp"
 #include "quantclaw/core/prompt_builder.hpp"
 #include "quantclaw/core/signal_handler.hpp"
@@ -225,6 +226,41 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
   auto session_manager =
       std::make_shared<quantclaw::SessionManager>(sessions_dir, logger_);
 
+  // Wire compaction persistence: when auto-compaction fires inside
+  // DefaultContextEngine::Assemble, persist the result to disk.
+  agent_loop->SetCompactPersistCallback(
+      [session_manager, agent_loop, memory_manager, logger = logger_](
+          const std::string& session_key,
+          const std::vector<quantclaw::SessionMessage>& kept_messages,
+          const quantclaw::SessionManager::CompactionMetadata& meta) {
+        // Optional: extract durable facts before discarding
+        if (agent_loop->GetConfig().pre_compact_memory_extract) {
+          auto full_history = session_manager->GetHistory(session_key);
+          if (static_cast<int>(full_history.size()) > meta.kept_count) {
+            int discard_count =
+                static_cast<int>(full_history.size()) - meta.kept_count;
+            std::vector<quantclaw::Message> discarded;
+            discarded.reserve(static_cast<size_t>(discard_count));
+            for (int i = 0; i < discard_count; ++i) {
+              quantclaw::Message m;
+              m.role = full_history[static_cast<size_t>(i)].role;
+              m.content = full_history[static_cast<size_t>(i)].content;
+              discarded.push_back(std::move(m));
+            }
+            quantclaw::MemoryExtractor extractor(logger);
+            extractor.Extract(discarded, *memory_manager);
+          }
+        }
+
+        auto archive =
+            session_manager->CompactSession(session_key, kept_messages, meta);
+        if (!archive.empty()) {
+          int max_keep = agent_loop->GetConfig().max_archived_transcripts;
+          session_manager->CleanupArchives(session_key, max_keep);
+          logger->info("Compaction persisted, archive: {}", archive);
+        }
+      });
+
   auto prompt_builder = std::make_shared<quantclaw::PromptBuilder>(
       memory_manager, skill_loader, tool_registry, &config);
 
@@ -335,7 +371,8 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
         }
 
         // Run agent loop on child session
-        auto messages = agent_loop->ProcessMessage(task, {}, system_prompt);
+        auto messages =
+            agent_loop->ProcessMessage(task, {}, system_prompt, session_key);
 
         // Extract final response
         std::string result;
@@ -375,7 +412,8 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
         session_manager->AppendMessage(session_key, "user", cmd.message);
 
         std::string system_prompt = prompt_builder->BuildFull();
-        auto history = session_manager->GetHistory(session_key, 50);
+        int history_limit = agent_loop->GetConfig().HistoryLoadLimit();
+        auto history = session_manager->GetHistory(session_key, history_limit);
 
         std::vector<quantclaw::Message> llm_history;
         for (const auto& smsg : history) {
@@ -396,7 +434,8 @@ int GatewayCommands::ForegroundCommand(const std::vector<std::string>& args) {
                   event.data.contains("content")) {
                 final_response = event.data["content"].get<std::string>();
               }
-            });
+            },
+            session_key);
 
         for (const auto& msg : new_messages) {
           quantclaw::SessionMessage smsg;

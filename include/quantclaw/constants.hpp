@@ -117,6 +117,25 @@ inline constexpr int kDefaultCompactKeepRecent = 20;
 /// Trigger compaction when estimated token count exceeds this value
 inline constexpr int kDefaultCompactMaxTokens = 100000;
 
+/// Whether to persist compaction results to disk (rewrite JSONL)
+inline constexpr bool kDefaultCompactPersist = true;
+
+/// Max archived transcripts to keep per session after compaction
+inline constexpr int kDefaultMaxArchivedTranscripts = 5;
+
+// ------------------------------------------------------------
+// system.deploymentProfile == "embedded" (only keys omitted in JSON)
+// ------------------------------------------------------------
+
+inline constexpr int kEmbeddedProfileContextWindow = 8192;
+inline constexpr int kEmbeddedProfileCompactMaxMessages = 40;
+inline constexpr int kEmbeddedProfileCompactKeepRecent = 12;
+inline constexpr int kEmbeddedProfileCompactMaxTokens = 24000;
+inline constexpr int kEmbeddedProfileMaxChunkTokens = 8192;
+inline constexpr int kEmbeddedProfileMaxSummaryCallsPerTurn = 4;
+inline constexpr int kEmbeddedProfileMinMessagesForMultistage = 12;
+inline constexpr int kEmbeddedProfileMaxArchivedTranscripts = 2;
+
 // ------------------------------------------------------------
 // Timeout defaults (seconds)
 // ------------------------------------------------------------

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include <spdlog/spdlog.h>
@@ -10,6 +11,7 @@
 #include "quantclaw/config.hpp"
 #include "quantclaw/core/context_engine.hpp"
 #include "quantclaw/core/multi_stage_compaction.hpp"
+#include "quantclaw/session/session_manager.hpp"
 
 namespace quantclaw {
 
@@ -40,6 +42,23 @@ class DefaultContextEngine : public ContextEngine {
     summary_fn_ = std::move(fn);
   }
 
+  // Callback signature for persisting compaction. Receives session key, the
+  // kept SessionMessages, and compaction metadata.
+  using CompactPersistCallback = std::function<void(
+      const std::string& session_key,
+      const std::vector<SessionMessage>& kept_messages,
+      const SessionManager::CompactionMetadata& meta)>;
+
+  void SetCompactPersistCallback(CompactPersistCallback cb) {
+    compact_persist_cb_ = std::move(cb);
+  }
+
+  // Set the session key for the current Assemble call so persistence
+  // knows which session to compact.
+  void SetSessionKey(const std::string& key) {
+    session_key_ = key;
+  }
+
   void SetConfig(const AgentConfig& config) {
     config_ = config;
   }
@@ -49,6 +68,8 @@ class DefaultContextEngine : public ContextEngine {
   std::shared_ptr<spdlog::logger> logger_;
   MultiStageCompaction compactor_;
   SummaryFn summary_fn_;
+  CompactPersistCallback compact_persist_cb_;
+  std::string session_key_;
 };
 
 }  // namespace quantclaw

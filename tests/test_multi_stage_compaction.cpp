@@ -4,8 +4,12 @@
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/spdlog.h>
 
+#include "quantclaw/config.hpp"
+#include "quantclaw/core/content_block.hpp"
 #include "quantclaw/core/default_context_engine.hpp"
 #include "quantclaw/core/multi_stage_compaction.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -130,6 +134,57 @@ TEST_F(MultiStageCompactionTest, ChunkByMaxTokensZeroLimit) {
   EXPECT_EQ(chunks.size(), 1u);
 }
 
+TEST_F(MultiStageCompactionTest, ChunkByMaxTokensAtomicKeepsToolTurnTogether) {
+  Message assistant;
+  assistant.role = "assistant";
+  assistant.content.push_back(ContentBlock::MakeToolUse(
+      "call1", "tool_x", nlohmann::json::object()));
+
+  Message tool_user;
+  tool_user.role = "user";
+  tool_user.content.push_back(
+      ContentBlock::MakeToolResult("call1", "tool output"));
+
+  std::vector<Message> history;
+  history.push_back(Message{"user", std::string(4000, 'a')});
+  history.push_back(Message{"assistant", std::string(4000, 'b')});
+  history.push_back(assistant);
+  history.push_back(tool_user);
+  history.push_back(Message{"user", "final question"});
+
+  auto chunks = MultiStageCompaction::ChunkByMaxTokensAtomic(history, 120);
+  ASSERT_GE(chunks.size(), 1u);
+  auto has_tool_use = [](const Message& m) {
+    for (const auto& b : m.content) {
+      if (b.type == "tool_use") {
+        return true;
+      }
+    }
+    return false;
+  };
+  int tool_assistant_chunk = -1;
+  int tool_result_chunk = -1;
+  for (size_t ci = 0; ci < chunks.size(); ++ci) {
+    for (const auto& m : chunks[ci]) {
+      if (m.role == "assistant" && has_tool_use(m)) {
+        tool_assistant_chunk = static_cast<int>(ci);
+      }
+      for (const auto& b : m.content) {
+        if (b.type == "tool_result" && b.content == "tool output") {
+          tool_result_chunk = static_cast<int>(ci);
+        }
+      }
+    }
+  }
+  EXPECT_GE(tool_assistant_chunk, 0);
+  EXPECT_EQ(tool_assistant_chunk, tool_result_chunk);
+  size_t total = 0;
+  for (const auto& ch : chunks) {
+    total += ch.size();
+  }
+  EXPECT_EQ(total, history.size());
+}
+
 // ================================================================
 // CompactMultiStage
 // ================================================================
@@ -214,6 +269,8 @@ TEST_F(MultiStageCompactionTest, FinalMergePassWhenExceedsTarget) {
 TEST_F(MultiStageCompactionTest, DefaultEngineUsesMultiStageWithSummaryFn) {
   AgentConfig config;
   config.context_window = 128000;
+  config.compaction.strategy =
+      CompactionRuntimeConfig::Strategy::kMultistage;
 
   DefaultContextEngine engine(config, logger_);
 

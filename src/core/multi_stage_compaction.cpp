@@ -10,6 +10,56 @@
 
 namespace quantclaw {
 
+namespace {
+
+bool MessageHasToolUse(const Message& m) {
+  for (const auto& b : m.content) {
+    if (b.type == "tool_use") {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool MessageIsToolResultUser(const Message& m) {
+  if (m.role != "user") {
+    return false;
+  }
+  if (m.content.empty()) {
+    return false;
+  }
+  for (const auto& b : m.content) {
+    if (b.type != "tool_result") {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::vector<std::vector<Message>> BuildAtomicSegments(
+    const std::vector<Message>& messages) {
+  std::vector<std::vector<Message>> segments;
+  size_t i = 0;
+  while (i < messages.size()) {
+    if (messages[i].role == "assistant" && MessageHasToolUse(messages[i])) {
+      std::vector<Message> unit;
+      unit.push_back(messages[i]);
+      ++i;
+      while (i < messages.size() && MessageIsToolResultUser(messages[i])) {
+        unit.push_back(messages[i]);
+        ++i;
+      }
+      segments.push_back(std::move(unit));
+    } else {
+      segments.push_back({messages[i]});
+      ++i;
+    }
+  }
+  return segments;
+}
+
+}  // namespace
+
 MultiStageCompaction::MultiStageCompaction(
     std::shared_ptr<spdlog::logger> logger)
     : logger_(std::move(logger)) {}
@@ -91,6 +141,44 @@ MultiStageCompaction::ChunkByMaxTokens(const std::vector<Message>& messages,
   return result;
 }
 
+std::vector<std::vector<Message>>
+MultiStageCompaction::ChunkByMaxTokensAtomic(
+    const std::vector<Message>& messages, int max_tokens) {
+  if (messages.empty()) {
+    return {};
+  }
+  if (max_tokens <= 0) {
+    return {messages};
+  }
+
+  auto segments = BuildAtomicSegments(messages);
+  std::vector<std::vector<Message>> result;
+  std::vector<Message> current_chunk;
+  int current_tokens = 0;
+
+  for (const auto& seg : segments) {
+    int seg_tokens = 0;
+    for (const auto& m : seg) {
+      seg_tokens += ContextPruner::EstimateTokens(m);
+    }
+
+    if (!current_chunk.empty() && current_tokens + seg_tokens > max_tokens) {
+      result.push_back(std::move(current_chunk));
+      current_chunk.clear();
+      current_tokens = 0;
+    }
+    for (const auto& m : seg) {
+      current_chunk.push_back(m);
+    }
+    current_tokens += seg_tokens;
+  }
+
+  if (!current_chunk.empty()) {
+    result.push_back(std::move(current_chunk));
+  }
+  return result;
+}
+
 std::vector<Message>
 MultiStageCompaction::CompactMultiStage(const std::vector<Message>& messages,
                                         const CompactionOptions& opts,
@@ -119,7 +207,7 @@ MultiStageCompaction::CompactMultiStage(const std::vector<Message>& messages,
   }
 
   // Multi-stage: chunk → summarize each → merge
-  auto chunks = ChunkByMaxTokens(messages, opts.max_chunk_tokens);
+  auto chunks = ChunkByMaxTokensAtomic(messages, opts.max_chunk_tokens);
   int num_chunks = static_cast<int>(chunks.size());
 
   logger_->info(
@@ -153,7 +241,9 @@ MultiStageCompaction::CompactMultiStage(const std::vector<Message>& messages,
               std::to_string(num_chunks) + "]\n" + chunk_summaries[i];
   }
 
-  int merged_tokens = static_cast<int>(merged.size()) / 4;  // rough estimate
+  std::vector<Message> merged_for_estimate;
+  merged_for_estimate.push_back(Message{"system", merged});
+  int merged_tokens = EstimateTokens(merged_for_estimate);
 
   // If merged result exceeds target and we have a target, do a final pass
   if (opts.target_tokens > 0 &&

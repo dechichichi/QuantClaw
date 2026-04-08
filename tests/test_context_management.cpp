@@ -14,7 +14,9 @@
 #include <spdlog/spdlog.h>
 
 #include "quantclaw/config.hpp"
+#include "quantclaw/constants.hpp"
 #include "quantclaw/core/context_pruner.hpp"
+#include "quantclaw/core/default_context_engine.hpp"
 #include "quantclaw/core/memory_search.hpp"
 #include "quantclaw/gateway/command_queue.hpp"
 
@@ -338,6 +340,8 @@ TEST(CompactionConfigTest, DefaultValues) {
   EXPECT_EQ(config.compact_max_messages, 100);
   EXPECT_EQ(config.compact_keep_recent, 20);
   EXPECT_EQ(config.compact_max_tokens, 100000);
+  EXPECT_EQ(config.compaction.strategy,
+            CompactionRuntimeConfig::Strategy::kTruncate);
 }
 
 TEST(CompactionConfigTest, ParseFromJson) {
@@ -366,6 +370,20 @@ TEST(CompactionConfigTest, ParseSnakeCase) {
   EXPECT_EQ(config.compact_max_messages, 75);
   EXPECT_EQ(config.compact_keep_recent, 15);
   EXPECT_EQ(config.compact_max_tokens, 80000);
+}
+
+TEST(CompactionConfigTest, ParseCompactionSection) {
+  nlohmann::json j = {{"model", "m"},
+                      {"compaction",
+                       {{"strategy", "multistage"},
+                        {"maxChunkTokens", 8192},
+                        {"maxSummaryCallsPerTurn", 8}}}};
+
+  auto config = AgentConfig::FromJson(j);
+  EXPECT_EQ(config.compaction.strategy,
+            CompactionRuntimeConfig::Strategy::kMultistage);
+  EXPECT_EQ(config.compaction.max_chunk_tokens, 8192);
+  EXPECT_EQ(config.compaction.max_summary_calls_per_turn, 8);
 }
 
 // ================================================================
@@ -699,6 +717,284 @@ TEST_F(ContextPrunerTest, NoAssistantMessagesNoProtection) {
   for (size_t i = 0; i < history.size(); ++i) {
     EXPECT_EQ(result[i].text(), history[i].text());
   }
+}
+
+// ================================================================
+// DefaultContextEngine — Auto-compaction Tests
+// ================================================================
+
+class ContextEngineCompactionTest : public ::testing::Test {
+ protected:
+  std::shared_ptr<spdlog::logger> logger_;
+
+  void SetUp() override {
+    auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();
+    logger_ = std::make_shared<spdlog::logger>("test", null_sink);
+  }
+
+  std::vector<Message> make_simple_history(int turns) {
+    std::vector<Message> history;
+    for (int i = 0; i < turns; ++i) {
+      history.push_back(Message{"user", "msg " + std::to_string(i)});
+      history.push_back(Message{"assistant", "reply " + std::to_string(i)});
+    }
+    return history;
+  }
+};
+
+TEST_F(ContextEngineCompactionTest, CompactsWhenHistoryExceedsMax) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 10;
+  config.compact_keep_recent = 4;
+  config.context_window = 128000;
+  config.max_tokens = 4096;
+
+  DefaultContextEngine engine(config, logger_);
+
+  auto history = make_simple_history(10);  // 20 messages > 10 threshold
+  auto result = engine.Assemble(history, "system prompt", "hello", 128000, 4096);
+
+  // After compaction: 1 system_prompt + 1 compaction_marker + 4 kept + 1 user
+  // Total should be much less than original 20 + 2
+  EXPECT_LT(static_cast<int>(result.messages.size()),
+            static_cast<int>(history.size()));
+
+  // The compaction marker should be present
+  bool found_marker = false;
+  for (const auto& msg : result.messages) {
+    if (msg.text().find("Context compaction") != std::string::npos) {
+      found_marker = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_marker);
+}
+
+TEST_F(ContextEngineCompactionTest, NoCompactionBelowThreshold) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 100;
+  config.compact_keep_recent = 20;
+  config.context_window = 128000;
+  config.max_tokens = 4096;
+
+  DefaultContextEngine engine(config, logger_);
+
+  auto history = make_simple_history(5);  // 10 messages < 100 threshold
+  auto result = engine.Assemble(history, "system prompt", "hello", 128000, 4096);
+
+  // No compaction marker
+  bool found_marker = false;
+  for (const auto& msg : result.messages) {
+    if (msg.text().find("Context compaction") != std::string::npos) {
+      found_marker = true;
+      break;
+    }
+  }
+  EXPECT_FALSE(found_marker);
+
+  // All messages preserved: 1 system + 10 history + 1 user = 12
+  EXPECT_EQ(static_cast<int>(result.messages.size()), 12);
+}
+
+TEST_F(ContextEngineCompactionTest, CompactionDisabledSkips) {
+  AgentConfig config;
+  config.auto_compact = false;
+  config.compact_max_messages = 5;
+  config.compact_keep_recent = 2;
+  config.context_window = 128000;
+  config.max_tokens = 4096;
+
+  DefaultContextEngine engine(config, logger_);
+
+  auto history = make_simple_history(10);  // 20 messages > 5 threshold
+  auto result = engine.Assemble(history, "system prompt", "hello", 128000, 4096);
+
+  // No compaction marker when auto_compact is disabled
+  bool found_marker = false;
+  for (const auto& msg : result.messages) {
+    if (msg.text().find("Context compaction") != std::string::npos) {
+      found_marker = true;
+      break;
+    }
+  }
+  EXPECT_FALSE(found_marker);
+}
+
+TEST_F(ContextEngineCompactionTest, KeepRecentCountCorrect) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 6;
+  config.compact_keep_recent = 4;
+  config.context_window = 128000;
+  config.max_tokens = 4096;
+
+  DefaultContextEngine engine(config, logger_);
+
+  auto history = make_simple_history(8);  // 16 messages
+  auto result = engine.Assemble(history, "sys", "new msg", 128000, 4096);
+
+  // Should keep: 1 system + 1 compaction_marker + 4 recent + 1 user = 7
+  EXPECT_EQ(static_cast<int>(result.messages.size()), 7);
+
+  // Last message before the user message should be the last assistant reply
+  auto& msgs = result.messages;
+  EXPECT_EQ(msgs.back().role, "user");
+  EXPECT_EQ(msgs.back().text(), "new msg");
+  EXPECT_EQ(msgs[msgs.size() - 2].role, "assistant");
+  EXPECT_EQ(msgs[msgs.size() - 2].text(), "reply 7");
+}
+
+TEST_F(ContextEngineCompactionTest, TokenBudgetTriggersCompaction) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 1000;  // high — won't trigger on count
+  config.compact_max_tokens = 50;      // very low — will trigger on tokens
+  config.compact_keep_recent = 4;
+  config.context_window = 128000;
+  config.max_tokens = 4096;
+
+  DefaultContextEngine engine(config, logger_);
+
+  auto history = make_simple_history(10);  // 20 messages, easily > 50 tokens
+  auto result = engine.Assemble(history, "sys", "hello", 128000, 4096);
+
+  bool found_marker = false;
+  for (const auto& msg : result.messages) {
+    if (msg.text().find("Context compaction") != std::string::npos) {
+      found_marker = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_marker);
+  EXPECT_LT(static_cast<int>(result.messages.size()),
+             static_cast<int>(history.size()));
+}
+
+TEST_F(ContextEngineCompactionTest, TokenBudgetZeroDisablesTokenCheck) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 1000;
+  config.compact_max_tokens = 0;  // disabled
+  config.compact_keep_recent = 4;
+  config.context_window = 128000;
+  config.max_tokens = 4096;
+
+  DefaultContextEngine engine(config, logger_);
+
+  auto history = make_simple_history(5);  // 10 messages
+  auto result = engine.Assemble(history, "sys", "hello", 128000, 4096);
+
+  bool found_marker = false;
+  for (const auto& msg : result.messages) {
+    if (msg.text().find("Context compaction") != std::string::npos) {
+      found_marker = true;
+      break;
+    }
+  }
+  EXPECT_FALSE(found_marker);
+}
+
+TEST(AgentConfigTest, HistoryLoadLimitComputation) {
+  AgentConfig config;
+  config.compact_max_messages = 100;
+  config.compact_keep_recent = 20;
+  EXPECT_EQ(config.HistoryLoadLimit(), 120);
+
+  config.compact_max_messages = 40;
+  config.compact_keep_recent = 12;
+  EXPECT_EQ(config.HistoryLoadLimit(), 52);
+}
+
+TEST(AgentConfigTest, CompactPersistDefaults) {
+  AgentConfig config;
+  EXPECT_TRUE(config.compact_persist);
+  EXPECT_EQ(config.max_archived_transcripts, 5);
+  EXPECT_FALSE(config.pre_compact_memory_extract);
+}
+
+TEST_F(ContextEngineCompactionTest, PersistCallbackInvoked) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 5;
+  config.compact_keep_recent = 2;
+  config.compact_persist = true;
+  config.context_window = 128000;
+
+  DefaultContextEngine engine(config, logger_);
+
+  bool callback_called = false;
+  std::string cb_session_key;
+  int cb_kept_count = 0;
+  int cb_original_count = 0;
+
+  engine.SetSessionKey("agent:main:persist-test");
+  engine.SetCompactPersistCallback(
+      [&](const std::string& key,
+          const std::vector<SessionMessage>& kept,
+          const SessionManager::CompactionMetadata& meta) {
+        callback_called = true;
+        cb_session_key = key;
+        cb_kept_count = static_cast<int>(kept.size());
+        cb_original_count = meta.original_count;
+      });
+
+  auto history = make_simple_history(5);
+  engine.Assemble(history, "system", "test", 128000, 4096);
+
+  EXPECT_TRUE(callback_called);
+  EXPECT_EQ(cb_session_key, "agent:main:persist-test");
+  EXPECT_EQ(cb_kept_count, 2);
+  EXPECT_EQ(cb_original_count, static_cast<int>(history.size()));
+}
+
+TEST_F(ContextEngineCompactionTest, PersistCallbackNotInvokedWhenDisabled) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 5;
+  config.compact_keep_recent = 2;
+  config.compact_persist = false;
+  config.context_window = 128000;
+
+  DefaultContextEngine engine(config, logger_);
+
+  bool callback_called = false;
+  engine.SetSessionKey("agent:main:no-persist");
+  engine.SetCompactPersistCallback(
+      [&](const std::string&, const std::vector<SessionMessage>&,
+          const SessionManager::CompactionMetadata&) {
+        callback_called = true;
+      });
+
+  auto history = make_simple_history(5);
+  engine.Assemble(history, "system", "test", 128000, 4096);
+
+  EXPECT_FALSE(callback_called);
+}
+
+TEST_F(ContextEngineCompactionTest, PersistCallbackNotInvokedNoSessionKey) {
+  AgentConfig config;
+  config.auto_compact = true;
+  config.compact_max_messages = 5;
+  config.compact_keep_recent = 2;
+  config.compact_persist = true;
+  config.context_window = 128000;
+
+  DefaultContextEngine engine(config, logger_);
+
+  bool callback_called = false;
+  // session key is empty by default
+  engine.SetCompactPersistCallback(
+      [&](const std::string&, const std::vector<SessionMessage>&,
+          const SessionManager::CompactionMetadata&) {
+        callback_called = true;
+      });
+
+  auto history = make_simple_history(5);
+  engine.Assemble(history, "system", "test", 128000, 4096);
+
+  EXPECT_FALSE(callback_called);
 }
 
 TEST_F(ContextPrunerTest, NonPositiveThresholdsStillPruneSafely) {

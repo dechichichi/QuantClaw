@@ -122,6 +122,7 @@ set(QUANTCLAW_CORE_SOURCES
     src/core/agent_loop.cpp
     src/core/config.cpp
     src/core/memory_manager.cpp
+    src/core/memory_extractor.cpp
     src/core/skill_loader.cpp
     src/core/prompt_builder.cpp
     src/core/signal_handler.cpp

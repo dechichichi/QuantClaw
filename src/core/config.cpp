@@ -136,6 +136,50 @@ static void expand_env_in_json(nlohmann::json& j) {
   }
 }
 
+CompactionRuntimeConfig CompactionRuntimeConfig::FromJson(
+    const nlohmann::json& json) {
+  CompactionRuntimeConfig c;
+  const std::string strat =
+      json.value("strategy", std::string("truncate"));
+  if (strat == "summarize") {
+    c.strategy = Strategy::kSummarize;
+  } else if (strat == "multistage") {
+    c.strategy = Strategy::kMultistage;
+  } else {
+    c.strategy = Strategy::kTruncate;
+  }
+
+  const std::string trig =
+      json.value("trigger", std::string("overflowOnly"));
+  if (trig == "assembleAndOverflow") {
+    c.trigger = Trigger::kAssembleAndOverflow;
+  } else {
+    c.trigger = Trigger::kOverflowOnly;
+  }
+
+  c.max_chunk_tokens =
+      json.value("maxChunkTokens", json.value("max_chunk_tokens", 16384));
+  c.target_tokens =
+      json.value("targetTokens", json.value("target_tokens", 0));
+  c.safety_margin = json.value("safetyMargin", json.value("safety_margin", 1.2));
+  c.min_messages_for_multistage = json.value(
+      "minMessagesForMultistage",
+      json.value("min_messages_for_multistage", 8));
+  c.max_summary_calls_per_turn = json.value(
+      "maxSummaryCallsPerTurn",
+      json.value("max_summary_calls_per_turn", 16));
+  c.merge_tree_threshold = json.value(
+      "mergeTreeThreshold", json.value("merge_tree_threshold", 8));
+  c.parallel_chunk_summaries =
+      json.value("parallelChunkSummaries",
+                 json.value("parallel_chunk_summaries", false));
+  c.max_output_tokens =
+      json.value("maxOutputTokens", json.value("max_output_tokens", 4096));
+  c.summary_temperature =
+      json.value("summaryTemperature", json.value("summary_temperature", 0.3));
+  return c;
+}
+
 AgentConfig AgentConfig::FromJson(const nlohmann::json& json) {
   AgentConfig config;
   // model can be a string or an object (primary/fallbacks) — only parse string
@@ -165,6 +209,19 @@ AgentConfig AgentConfig::FromJson(const nlohmann::json& json) {
   config.compact_max_tokens =
       json.value("compactMaxTokens",
                  json.value("compact_max_tokens", kDefaultCompactMaxTokens));
+  config.compact_persist =
+      json.value("compactPersist",
+                 json.value("compact_persist", kDefaultCompactPersist));
+  config.max_archived_transcripts = json.value(
+      "maxArchivedTranscripts",
+      json.value("max_archived_transcripts", kDefaultMaxArchivedTranscripts));
+  config.pre_compact_memory_extract = json.value(
+      "preCompactMemoryExtract",
+      json.value("pre_compact_memory_extract", false));
+
+  if (json.contains("compaction") && json["compaction"].is_object()) {
+    config.compaction = CompactionRuntimeConfig::FromJson(json["compaction"]);
+  }
   return config;
 }
 
@@ -363,6 +420,68 @@ QuantClawConfig QuantClawConfig::FromJson(const nlohmann::json& json) {
   return FromJsonExpanded(expanded);
 }
 
+namespace {
+
+// When system.deploymentProfile is "embedded", apply conservative defaults for
+// keys not present in agent / agents.defaults / llm JSON (see spec).
+void ApplyEmbeddedDeploymentProfile(AgentConfig& agent, const nlohmann::json& root) {
+  const bool has_agent =
+      root.contains("agent") && root["agent"].is_object();
+  const bool has_defaults = root.contains("agents") &&
+                            root["agents"].contains("defaults") &&
+                            root["agents"]["defaults"].is_object();
+  const bool has_llm = root.contains("llm") && root["llm"].is_object();
+
+  auto json_has_in_agent_sources = [&](const char* camel,
+                                       const char* snake) -> bool {
+    if (has_agent && (root["agent"].contains(camel) ||
+                      root["agent"].contains(snake))) {
+      return true;
+    }
+    if (has_defaults && (root["agents"]["defaults"].contains(camel) ||
+                         root["agents"]["defaults"].contains(snake))) {
+      return true;
+    }
+    if (has_llm &&
+        (root["llm"].contains(camel) || root["llm"].contains(snake))) {
+      return true;
+    }
+    return false;
+  };
+
+  if (!json_has_in_agent_sources("contextWindow", "context_window")) {
+    agent.context_window = kEmbeddedProfileContextWindow;
+  }
+  if (!json_has_in_agent_sources("compactMaxMessages", "compact_max_messages")) {
+    agent.compact_max_messages = kEmbeddedProfileCompactMaxMessages;
+  }
+  if (!json_has_in_agent_sources("compactKeepRecent", "compact_keep_recent")) {
+    agent.compact_keep_recent = kEmbeddedProfileCompactKeepRecent;
+  }
+  if (!json_has_in_agent_sources("compactMaxTokens", "compact_max_tokens")) {
+    agent.compact_max_tokens = kEmbeddedProfileCompactMaxTokens;
+  }
+  if (!json_has_in_agent_sources("maxArchivedTranscripts",
+                                 "max_archived_transcripts")) {
+    agent.max_archived_transcripts = kEmbeddedProfileMaxArchivedTranscripts;
+  }
+
+  const bool has_compaction =
+      (has_agent && root["agent"].contains("compaction")) ||
+      (has_defaults && root["agents"]["defaults"].contains("compaction")) ||
+      (has_llm && root["llm"].contains("compaction"));
+  if (!has_compaction) {
+    agent.compaction.strategy = CompactionRuntimeConfig::Strategy::kTruncate;
+    agent.compaction.max_summary_calls_per_turn =
+        kEmbeddedProfileMaxSummaryCallsPerTurn;
+    agent.compaction.min_messages_for_multistage =
+        kEmbeddedProfileMinMessagesForMultistage;
+    agent.compaction.max_chunk_tokens = kEmbeddedProfileMaxChunkTokens;
+  }
+}
+
+}  // namespace
+
 QuantClawConfig QuantClawConfig::FromJsonExpanded(const nlohmann::json& json) {
   QuantClawConfig config;
 
@@ -395,16 +514,33 @@ QuantClawConfig QuantClawConfig::FromJsonExpanded(const nlohmann::json& json) {
     prov.base_url = llm.value("baseUrl", "");
     prov.timeout = llm.value("timeout", kDefaultProviderTimeoutSec);
     config.providers[provider_name] = prov;
+
+    if (llm.contains("compaction") && llm["compaction"].is_object()) {
+      config.agent.compaction =
+          CompactionRuntimeConfig::FromJson(llm["compaction"]);
+    }
   }
 
   // ================================================================
   // QuantClaw "agent" section (takes priority over llm if both exist)
   // ================================================================
   if (json.contains("agent") && json["agent"].is_object()) {
-    config.agent = AgentConfig::FromJson(json["agent"]);
+    const auto& agent_json = json["agent"];
+    config.agent = AgentConfig::FromJson(agent_json);
+    if (!agent_json.contains("compaction") && json.contains("llm") &&
+        json["llm"].contains("compaction")) {
+      config.agent.compaction =
+          CompactionRuntimeConfig::FromJson(json["llm"]["compaction"]);
+    }
   } else if (json.contains("agents") && json["agents"].contains("defaults")) {
+    const auto& agent_json = json["agents"]["defaults"];
     // Legacy format
-    config.agent = AgentConfig::FromJson(json["agents"]["defaults"]);
+    config.agent = AgentConfig::FromJson(agent_json);
+    if (!agent_json.contains("compaction") && json.contains("llm") &&
+        json["llm"].contains("compaction")) {
+      config.agent.compaction =
+          CompactionRuntimeConfig::FromJson(json["llm"]["compaction"]);
+    }
   }
 
   // ================================================================
@@ -557,6 +693,10 @@ QuantClawConfig QuantClawConfig::FromJsonExpanded(const nlohmann::json& json) {
         config.tools[key] = ToolConfig::FromJson(value);
       }
     }
+  }
+
+  if (config.system.deployment_profile == "embedded") {
+    ApplyEmbeddedDeploymentProfile(config.agent, json);
   }
 
   return config;

@@ -160,8 +160,10 @@ void register_api_routes(
           // Build system prompt
           std::string system_prompt = prompt_builder->BuildFull();
 
-          // Load history
-          auto history = session_manager->GetHistory(session_key, 50);
+          // Load history (enough for compaction to trigger)
+          int history_limit = agent_loop->GetConfig().HistoryLoadLimit();
+          auto history =
+              session_manager->GetHistory(session_key, history_limit);
 
           // Convert to LLM Messages
           std::vector<quantclaw::Message> llm_history;
@@ -176,8 +178,8 @@ void register_api_routes(
           }
 
           // Non-streaming call
-          auto new_messages =
-              agent_loop->ProcessMessage(message, llm_history, system_prompt);
+          auto new_messages = agent_loop->ProcessMessage(
+              message, llm_history, system_prompt, session_key);
 
           // Extract final assistant text
           std::string final_response;
@@ -261,7 +263,9 @@ void register_api_routes(
         session_manager->AppendMessage(session_key, "user", message);
         std::string system_prompt = prompt_builder->BuildFull();
 
-        auto history = session_manager->GetHistory(session_key, 50);
+        int history_limit = agent_loop->GetConfig().HistoryLoadLimit();
+        auto history =
+            session_manager->GetHistory(session_key, history_limit);
         std::vector<quantclaw::Message> llm_history;
         llm_history.reserve(history.size());
         for (const auto& smsg : history) {
@@ -287,7 +291,8 @@ void register_api_routes(
                   std::lock_guard<std::mutex> lock(state->mu);
                   state->chunks.push(std::move(sse));
                   state->cv.notify_one();
-                });
+                },
+                session_key);
 
             // Persist new messages to the session transcript
             for (const auto& msg : new_messages) {
@@ -767,8 +772,10 @@ void register_api_routes(
           // Build system prompt
           std::string system_prompt = prompt_builder->BuildFull();
 
-          // Load history
-          auto history = session_manager->GetHistory(session_key, 50);
+          // Load history (enough for compaction to trigger)
+          int history_limit = agent_loop->GetConfig().HistoryLoadLimit();
+          auto history =
+              session_manager->GetHistory(session_key, history_limit);
           std::vector<quantclaw::Message> llm_history;
           for (const auto& smsg : history) {
             quantclaw::Message m;
@@ -781,8 +788,8 @@ void register_api_routes(
           }
 
           // Non-streaming call
-          auto new_messages =
-              agent_loop->ProcessMessage(message, llm_history, system_prompt);
+          auto new_messages = agent_loop->ProcessMessage(
+              message, llm_history, system_prompt, session_key);
 
           // Extract final assistant text
           std::string final_response;

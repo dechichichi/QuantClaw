@@ -7,13 +7,13 @@
 #include <cctype>
 #include <chrono>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
 #include "quantclaw/core/context_pruner.hpp"
-#include "quantclaw/core/default_context_engine.hpp"
 #include "quantclaw/core/memory_manager.hpp"
 #include "quantclaw/core/session_compaction.hpp"
 #include "quantclaw/core/skill_loader.hpp"
@@ -21,6 +21,7 @@
 #include "quantclaw/providers/failover_resolver.hpp"
 #include "quantclaw/providers/provider_error.hpp"
 #include "quantclaw/providers/provider_registry.hpp"
+#include "quantclaw/core/multi_stage_compaction.hpp"
 #include "quantclaw/tools/tool_registry.hpp"
 
 // Bring event name constants into scope
@@ -142,6 +143,9 @@ AgentLoop::AgentLoop(std::shared_ptr<MemoryManager> memory_manager,
       agent_config_(agent_config) {
   // Use dynamic max iterations based on context window
   max_iterations_ = agent_config_.DynamicMaxIterations();
+  default_context_engine_ =
+      std::make_shared<DefaultContextEngine>(agent_config_, logger_);
+  RefreshDefaultContextEngineSummary();
   logger_->info("AgentLoop initialized with model: {}, max_iterations: {}",
                 agent_config_.model, max_iterations_);
 }
@@ -188,6 +192,83 @@ std::shared_ptr<LLMProvider> AgentLoop::resolve_provider() {
   return llm_provider_;
 }
 
+std::shared_ptr<ContextEngine> AgentLoop::GetContextEngineForTurn() {
+  if (context_engine_) {
+    return context_engine_;
+  }
+  return default_context_engine_;
+}
+
+void AgentLoop::RefreshDefaultContextEngineSummary() {
+  if (!default_context_engine_) {
+    return;
+  }
+  default_context_engine_->SetConfig(agent_config_);
+  if (agent_config_.compaction.strategy ==
+          CompactionRuntimeConfig::Strategy::kSummarize ||
+      agent_config_.compaction.strategy ==
+          CompactionRuntimeConfig::Strategy::kMultistage) {
+    default_context_engine_->SetSummaryFn(
+        [this](const std::vector<Message>& msgs) -> std::string {
+          return SummarizeForCompaction(msgs);
+        });
+  } else {
+    default_context_engine_->SetSummaryFn(SummaryFn{});
+  }
+}
+
+std::string AgentLoop::SummarizeForCompaction(
+    const std::vector<Message>& messages) {
+  if (agent_config_.compaction.strategy !=
+          CompactionRuntimeConfig::Strategy::kSummarize &&
+      agent_config_.compaction.strategy !=
+          CompactionRuntimeConfig::Strategy::kMultistage) {
+    logger_->warn(
+        "SummarizeForCompaction called while compaction strategy is truncate");
+    throw std::runtime_error("compaction strategy does not allow summarization");
+  }
+  if (compaction_summary_calls_this_turn_ >=
+      agent_config_.compaction.max_summary_calls_per_turn) {
+    logger_->error("Compaction summary call cap exceeded");
+    throw std::runtime_error("compaction summary call cap exceeded");
+  }
+  compaction_summary_calls_this_turn_++;
+
+  auto provider = resolve_provider();
+  ChatCompletionRequest req;
+  req.model = resolved_request_model_;
+  req.temperature = agent_config_.compaction.summary_temperature;
+  req.max_tokens = agent_config_.compaction.max_output_tokens;
+  req.thinking = "off";
+  req.messages.push_back(Message{
+      "system",
+      "You are compressing conversation history for context retention. "
+      "Summarize the messages that follow: preserve user goals, decisions, "
+      "constraints, tool outcomes, and open tasks. Use concise bullet points "
+      "or short paragraphs. Do not invent facts."});
+  for (const auto& m : messages) {
+    req.messages.push_back(m);
+  }
+  req.tools.clear();
+  req.tool_choice_auto = false;
+
+  try {
+    auto resp = provider->ChatCompletion(req);
+    return resp.content;
+  } catch (const ProviderError& pe) {
+    logger_->error("Compaction summarization provider error: {}", pe.what());
+    throw std::runtime_error(std::string("compaction summarization failed: ") +
+                             pe.what());
+  }
+}
+
+void AgentLoop::SetCompactPersistCallback(
+    DefaultContextEngine::CompactPersistCallback cb) {
+  if (default_context_engine_) {
+    default_context_engine_->SetCompactPersistCallback(std::move(cb));
+  }
+}
+
 void AgentLoop::SetModel(const std::string& model_ref) {
   agent_config_.model = model_ref;
   logger_->info("Model set to: {}", model_ref);
@@ -201,15 +282,16 @@ std::vector<Message> AgentLoop::ProcessMessage(
   logger_->info("Processing message (non-streaming)");
   stop_requested_ = false;
 
+  compaction_summary_calls_this_turn_ = 0;
   auto provider = resolve_provider();
 
   std::vector<Message> new_messages;
 
   // --- Context assembly via pluggable engine ---
-  auto engine =
-      context_engine_
-          ? context_engine_
-          : std::make_shared<DefaultContextEngine>(agent_config_, logger_);
+  auto engine = GetContextEngineForTurn();
+  if (default_context_engine_) {
+    default_context_engine_->SetSessionKey(effective_session_key);
+  }
   int ctx_window = agent_config_.context_window > 0
                        ? agent_config_.context_window
                        : get_context_window(agent_config_.model);
@@ -420,15 +502,16 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
   logger_->info("Processing message (streaming)");
   stop_requested_ = false;
 
+  compaction_summary_calls_this_turn_ = 0;
   auto provider = resolve_provider();
 
   std::vector<Message> new_messages;
 
   // --- Context assembly via pluggable engine ---
-  auto engine =
-      context_engine_
-          ? context_engine_
-          : std::make_shared<DefaultContextEngine>(agent_config_, logger_);
+  auto engine = GetContextEngineForTurn();
+  if (default_context_engine_) {
+    default_context_engine_->SetSessionKey(effective_session_key);
+  }
   int ctx_window = agent_config_.context_window > 0
                        ? agent_config_.context_window
                        : get_context_window(agent_config_.model);
@@ -712,6 +795,10 @@ void AgentLoop::Stop() {
 void AgentLoop::SetConfig(const AgentConfig& config) {
   agent_config_ = config;
   max_iterations_ = config.DynamicMaxIterations();
+  if (default_context_engine_) {
+    default_context_engine_->SetConfig(agent_config_);
+    RefreshDefaultContextEngineSummary();
+  }
   logger_->info(
       "AgentLoop config updated: model={}, temp={}, max_tokens={}, "
       "max_iterations={}, thinking={}",

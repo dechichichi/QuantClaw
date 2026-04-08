@@ -15,6 +15,33 @@ namespace quantclaw {
 
 // --- Agent / LLM ---
 
+// LLM-driven context compaction (overflow recovery + optional future assemble).
+struct CompactionRuntimeConfig {
+  enum class Strategy {
+    kTruncate,    // Deterministic truncation only (default, no extra LLM calls)
+    kSummarize,   // Single-pass or multi-stage summarization via SummaryFn
+    kMultistage,  // Same pipeline as kSummarize; name documents intent
+  };
+  enum class Trigger {
+    kOverflowOnly,         // Only when provider reports context overflow
+    kAssembleAndOverflow,  // Reserved: also summarize during Assemble (future)
+  };
+
+  Strategy strategy = Strategy::kTruncate;
+  Trigger trigger = Trigger::kOverflowOnly;
+  int max_chunk_tokens = 16384;
+  int target_tokens = 0;  // 0 = context_window / 4 at runtime
+  double safety_margin = 1.2;
+  int min_messages_for_multistage = 8;
+  int max_summary_calls_per_turn = 16;
+  int merge_tree_threshold = 8;
+  bool parallel_chunk_summaries = false;
+  int max_output_tokens = 4096;
+  double summary_temperature = 0.3;
+
+  static CompactionRuntimeConfig FromJson(const nlohmann::json& json);
+};
+
 struct AgentConfig {
   std::string model = "anthropic/claude-sonnet-4-6";
   int max_iterations = kDefaultMaxIterations;
@@ -32,8 +59,21 @@ struct AgentConfig {
       kDefaultCompactKeepRecent;  // Keep this many recent messages
   int compact_max_tokens =
       kDefaultCompactMaxTokens;  // Compact when tokens exceed this
+  bool compact_persist =
+      kDefaultCompactPersist;  // Persist compaction to disk (rewrite JSONL)
+  int max_archived_transcripts =
+      kDefaultMaxArchivedTranscripts;  // Archived transcripts to keep
+  bool pre_compact_memory_extract =
+      false;  // Extract facts from discarded messages before compaction
+
+  CompactionRuntimeConfig compaction;
 
   static AgentConfig FromJson(const nlohmann::json& json);
+
+  // Max messages to load from session store so that auto-compaction can trigger.
+  int HistoryLoadLimit() const {
+    return compact_max_messages + compact_keep_recent;
+  }
 
   // Compute dynamic max iterations based on context window.
   // OpenClaw: scales linearly from kMinMaxIterations (32) at 32K
@@ -186,6 +226,9 @@ struct SystemConfig {
       7;  // Delete log files older than N days (0 = keep forever)
   int log_max_size_mb =
       50;  // Total log storage cap in MiB across all rotated files
+  /// Deployment hint: "embedded" applies conservative agent/compaction defaults
+  /// when keys are omitted (see docs/specs/context-multi-stage-compaction-technical-design.md).
+  std::string deployment_profile;
 
   static SystemConfig FromJson(const nlohmann::json& json) {
     SystemConfig c;
@@ -195,6 +238,8 @@ struct SystemConfig {
     c.port = json.value("port", 0);
     c.log_retention_days = json.value("logRetentionDays", 7);
     c.log_max_size_mb = json.value("logMaxSizeMb", 50);
+    c.deployment_profile =
+        json.value("deploymentProfile", json.value("deployment_profile", std::string()));
     return c;
   }
 };

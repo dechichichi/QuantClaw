@@ -154,6 +154,22 @@ class SessionManager : public Noncopyable {
   // Reset a session (archive old, create new session ID)
   void ResetSession(const std::string& session_key);
 
+  // Persist compaction: archive old transcript, write compaction marker +
+  // kept messages as new JSONL. Returns the archive filename on success.
+  struct CompactionMetadata {
+    int original_count = 0;
+    int kept_count = 0;
+    std::string strategy;  // "truncate" | "summary"
+    std::string summary;   // LLM summary (empty for truncate)
+  };
+  std::string CompactSession(const std::string& session_key,
+                             const std::vector<SessionMessage>& kept_messages,
+                             const CompactionMetadata& meta);
+
+  // Remove oldest archived transcripts for a session, keeping at most
+  // max_keep. Returns the number of archives deleted.
+  int CleanupArchives(const std::string& session_key, int max_keep);
+
   // Update display name
   void UpdateDisplayName(const std::string& session_key,
                          const std::string& name);

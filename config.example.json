@@ -1,12 +1,27 @@
 {
   "system": {
-    "logLevel": "info"
+    "logLevel": "info",
+    "deploymentProfile": ""
   },
   "llm": {
     "model": "openai/qwen-max",
     "maxIterations": 15,
     "temperature": 0.7,
-    "maxTokens": 4096
+    "maxTokens": 4096,
+    "compaction": {
+      "strategy": "truncate",
+      "trigger": "overflowOnly",
+      "maxChunkTokens": 16384,
+      "minMessagesForMultistage": 8,
+      "maxSummaryCallsPerTurn": 16,
+      "maxOutputTokens": 4096,
+      "summaryTemperature": 0.3
+    }
+  },
+  "agent": {
+    "compactPersist": true,
+    "maxArchivedTranscripts": 5,
+    "preCompactMemoryExtract": false
   },
   "providers": {
     "openai": {

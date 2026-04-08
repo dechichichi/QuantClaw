@@ -466,6 +466,130 @@ void SessionManager::ResetSession(const std::string& session_key) {
   logger_->info("Reset session: {} -> {}", normalized, new_sid);
 }
 
+std::string
+SessionManager::CompactSession(const std::string& session_key,
+                               const std::vector<SessionMessage>& kept_messages,
+                               const CompactionMetadata& meta) {
+  std::unique_lock<std::shared_mutex> lock(mutex_);
+
+  std::string normalized = NormalizeSessionKey(session_key);
+  auto it = store_.find(normalized);
+  if (it == store_.end()) {
+    logger_->warn("CompactSession: session not found: {}", session_key);
+    return {};
+  }
+
+  auto current_path = transcript_path(it->second.session_id);
+  if (!std::filesystem::exists(current_path)) {
+    logger_->warn("CompactSession: transcript not found: {}",
+                  current_path.string());
+    return {};
+  }
+
+  auto ts = get_timestamp();
+  std::replace(ts.begin(), ts.end(), ':', '-');
+  std::string archive_name =
+      it->second.session_id + ".jsonl.compacted." + ts;
+  auto archive_path = sessions_dir_ / archive_name;
+
+  // Avoid overwriting an existing archive (fast successive compactions)
+  int suffix = 0;
+  while (std::filesystem::exists(archive_path)) {
+    ++suffix;
+    archive_name = it->second.session_id + ".jsonl.compacted." + ts + "." +
+                   std::to_string(suffix);
+    archive_path = sessions_dir_ / archive_name;
+  }
+
+  std::error_code ec;
+  std::filesystem::rename(current_path, archive_path, ec);
+  if (ec) {
+    logger_->error("CompactSession: failed to archive transcript: {}",
+                   ec.message());
+    return {};
+  }
+  logger_->info("CompactSession: archived {} -> {}", current_path.string(),
+                archive_path.string());
+
+  // Write new JSONL with compaction marker + kept messages
+  std::ofstream out(current_path, std::ios::trunc);
+  if (!out.is_open()) {
+    logger_->error("CompactSession: failed to create new transcript: {}",
+                   current_path.string());
+    return {};
+  }
+
+  nlohmann::json marker = {{"type", "compaction"},
+                            {"timestamp", get_timestamp()},
+                            {"original_count", meta.original_count},
+                            {"kept_count", meta.kept_count},
+                            {"strategy", meta.strategy},
+                            {"archived", archive_name}};
+  if (!meta.summary.empty()) {
+    marker["summary"] = meta.summary;
+  }
+  out << marker.dump() << "\n";
+
+  for (const auto& msg : kept_messages) {
+    out << msg.ToJsonl().dump() << "\n";
+  }
+  out.close();
+
+  it->second.updated_at = get_timestamp();
+  SaveStore();
+
+  logger_->info(
+      "CompactSession: persisted {} -> {} messages for session {}",
+      meta.original_count, meta.kept_count, normalized);
+  return archive_name;
+}
+
+int SessionManager::CleanupArchives(const std::string& session_key,
+                                    int max_keep) {
+  std::unique_lock<std::shared_mutex> lock(mutex_);
+
+  std::string normalized = NormalizeSessionKey(session_key);
+  auto it = store_.find(normalized);
+  if (it == store_.end()) {
+    return 0;
+  }
+
+  const std::string& sid = it->second.session_id;
+  std::string prefix = sid + ".jsonl.compacted.";
+
+  std::vector<std::filesystem::path> archives;
+  for (const auto& entry :
+       std::filesystem::directory_iterator(sessions_dir_)) {
+    if (!entry.is_regular_file()) continue;
+    auto fname = entry.path().filename().string();
+    if (fname.find(prefix) == 0) {
+      archives.push_back(entry.path());
+    }
+  }
+
+  if (static_cast<int>(archives.size()) <= max_keep) {
+    return 0;
+  }
+
+  // Sort ascending by filename (timestamp is embedded, lexicographic order works)
+  std::sort(archives.begin(), archives.end());
+
+  int to_remove = static_cast<int>(archives.size()) - max_keep;
+  int removed = 0;
+  for (int i = 0; i < to_remove; ++i) {
+    std::error_code ec;
+    std::filesystem::remove(archives[static_cast<size_t>(i)], ec);
+    if (!ec) {
+      ++removed;
+      logger_->info("CleanupArchives: removed {}", archives[static_cast<size_t>(i)].string());
+    } else {
+      logger_->warn("CleanupArchives: failed to remove {}: {}",
+                    archives[static_cast<size_t>(i)].string(), ec.message());
+    }
+  }
+  return removed;
+}
+
 void SessionManager::SaveStore() {
   auto store_path = sessions_dir_ / "sessions.json";
   nlohmann::json j = nlohmann::json::object();
